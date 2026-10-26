@@ -286,11 +286,11 @@ Each rank exchanges messages with exactly one partner.  Partners are chosen by o
 | `pairwise_nb` | Non-blocking (`MPI_Isend` / `MPI_Irecv`) |
 | `pairwise_bsnbr` | Non-blocking send, blocking receive |
 
-Extra flags: `-offset <O>` (default `1`) — fixed partner offset; `-mode <M>` (default `offpair`) — pairing mode. Supported modes:
+Extra flags: `-offset <O>` (default `n/2`, half the number of ranks) — fixed partner offset; `-mode <M>` (default `offpair`) — pairing mode. Supported modes:
 
 | Mode | Meaning |
 |------|---------|
-| `offpair` | Disjoint reciprocal pairs at fixed offset `O` (e.g. `(0,1) (2,3) …`) |
+| `offpair` | Disjoint reciprocal pairs at fixed offset `O` (e.g. `(0,1) (2,3) …` for `O=1`) |
 | `rpair` | Uniformly random disjoint pairs (same seed on all ranks) |
 | `perm` | Random permutation: each rank sends to one partner (not necessarily reciprocal) |
 | `rot` | Ring rotation: rank `i` sends to `(i+O) mod n` |

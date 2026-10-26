@@ -16,7 +16,7 @@ const char *benchmark_help =
 "      rpair     random reciprocal pairing (uses -seed)\n"
 "      rot       rotation: rank r -> (r+offset) mod w_size; non-reciprocal\n"
 "      perm      random permutation; non-reciprocal\n"
-"  -offset <int>                 offset for offpair/rot modes (default 1)\n";
+"  -offset <int>                 offset for offpair/rot modes (default w_size/2)\n";
 
 int main(int argc, char** argv){
 
@@ -29,7 +29,7 @@ int main(int argc, char** argv){
     install_shutdown_handler();
 
     const char *comm_mode="offpair";
-    int target_offset=1;
+    int target_offset=w_size/2;
 
     /*parse command line*/
     int i, k;

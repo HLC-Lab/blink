@@ -109,6 +109,11 @@ TEST_F(PairwiseBTest, Offpair_Offset2_ExactPairs) {
     /* offset_pairs(n=8, offset=2) → 0↔2, 1↔3, 4↔6, 5↔7 */
     check_exact(m, {{0,2},{2,0},{1,3},{3,1},{4,6},{6,4},{5,7},{7,5}}, "offpair offset=2");
 }
+TEST_F(PairwiseBTest, Offpair_DefaultOffset_ExactPairs) {
+    auto m = run_debug("pairwise_b", N, "-mode offpair");
+    /* default offset = N/2 = 4 → 0↔4, 1↔5, 2↔6, 3↔7 */
+    check_exact(m, {{0,4},{4,0},{1,5},{5,1},{2,6},{6,2},{3,7},{7,3}}, "offpair default offset");
+}
 
 TEST_F(PairwiseBTest, RandomPair_Coverage) {
     auto m = run_debug("pairwise_b", N, "-mode rpair -seed 1");
