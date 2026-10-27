@@ -85,3 +85,8 @@ On multi-GPU nodes UCX may create its CUDA context on device 0 during `MPI_Init`
 Whether the device should be selected before `MPI_Init` (from the launcher's local-rank environment variable, e.g.
 `OMPI_COMM_WORLD_LOCAL_RANK` / `SLURM_LOCALID`) cannot be tested on this single-GPU machine. Check on a multi-GPU
 node, or with the professor.
+
+Observation to include in that check: `mpirun -n 2 <bin> -gpu 2>&1 >/dev/null | head` showed rank stdout lines in the
+pipe (the launcher's own I/O forwarding interacts with that redirection order), while `mpirun ... >out 2>err` split
+the two streams correctly. Wrappers should redirect to files (or use the launcher's own output options), not rely on
+`2>&1 >/dev/null` ordering.
