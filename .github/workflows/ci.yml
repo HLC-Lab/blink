@@ -76,3 +76,46 @@ jobs:
             coverage.xml
             coverage_summary.txt
           if-no-files-found: ignore
+
+  # ---- GPU builds: compile-only (hosted runners have no GPU, so nothing is executed) ----
+  build-cuda:
+    name: compile-only (CUDA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (CMake, OpenMPI, CUDA toolkit)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential openmpi-bin libopenmpi-dev nvidia-cuda-toolkit
+
+      - name: Configure
+        run: cmake -B build -DBLINK_GPU=CUDA -DBLINK_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+  # Best-effort: validates the HIP code path (src/gpu.c mapping) against the ROCm headers.
+  # Not blocking, because the package set on the hosted image may change; fix the package
+  # list from the log of the first run.
+  build-hip:
+    name: compile-only (HIP, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (CMake, OpenMPI, HIP runtime)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential openmpi-bin libopenmpi-dev hipcc libamdhip64-dev
+
+      - name: Configure
+        run: cmake -B build -DBLINK_GPU=HIP -DBLINK_TESTS=OFF -DCMAKE_PREFIX_PATH=/usr:/opt/rocm
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"

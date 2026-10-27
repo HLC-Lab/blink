@@ -35,6 +35,18 @@ cmake --build build -j$(nproc)
 
 Binaries are placed in `build/bin/`.  Adding a new `.c` or `.cpp` file anywhere under `src/` is enough — CMake picks it up automatically on the next configure.
 
+### GPU support
+
+`BLINK_GPU` selects the GPU backend used by [`-gpu`](#gpu-mode): `AUTO` (default: CUDA if a toolkit is found, else HIP, else a host-only build), `OFF`, `CUDA` or `HIP`.  An explicit `CUDA`/`HIP` fails the configure step when the toolkit is missing; the chosen backend is printed (`BLINK_GPU: requested AUTO, using CUDA`).  No kernels are compiled, so only the CUDA/HIP *runtime library* is needed — no `nvcc` or `hipcc`.  Use one build directory per backend; `CMakePresets.json` (CMake ≥ 3.21) provides them:
+
+```bash
+cmake --preset cpu  && cmake --build --preset cpu    # host only          -> build-cpu/
+cmake --preset cuda && cmake --build --preset cuda   # NVIDIA             -> build-cuda/
+cmake --preset hip  && cmake --build --preset hip    # AMD (ROCm in /opt/rocm) -> build-hip/
+```
+
+On a cluster combine this with `-DBLINK_MPI_WRAPPER=ON` after loading the CUDA/ROCm and MPI modules.  A GPU build still runs in host mode unless `-gpu` is passed.
+
 
 ## Testing
 
@@ -73,6 +85,14 @@ ctest --test-dir build -R test_collectives --output-on-failure
 | `test_kpartners` | `kpartners_nb` | Coverage, communicator size, k value, slot coherence (plain + burst) |
 | `test_stencil` | `stencil_2d_nb` | Coverage, communicator size, data integrity, neighbour-graph consistency (plain, periodic, burst) |
 | `test_misc` | cross-cutting (`barrier_nb`, `incast_b`, `dist_test`, `alltoall_nb`) | Ring-buffer wrap, warm-up exclusion, pretty-print formatter, `-mrand` determinism, sampler self-check, SIGUSR1 clean shutdown |
+
+### GPU tests
+
+With a GPU backend every suite also gets a `<suite>_gpu` ctest entry: the same binary run with `BLINK_TEST_GPU=1`, which appends `-gpu` to every benchmark launch and additionally fails a run whose ranks report `gpu=1` but created no device copy.  `test_gpu` covers the `-gpu` runtime itself and `test_gpu_layer` the CUDA/HIP wrapper.  All GPU tests share one `ctest` resource lock so they run one at a time.  The one-sided incast cases are skipped when the MPI cannot move device-memory windows.
+
+```bash
+ctest --test-dir build-cuda -R _gpu --output-on-failure
+```
 
 ### Overriding MPI launcher
 
@@ -128,6 +148,7 @@ Every benchmark understands the following flags:
 | `-plotbins <N>` | `10` | Number of histogram bins |
 | `-plotbinsize <D>` | — | Fixed bin width with optional unit (e.g. `2ms`, `500us`, `0.001`); overrides `-plotbins`, linear bins only |
 | `-plotlog` | off | Use logarithmic (geometric) bins — good for heavy-tailed latencies |
+| `-gpu` | off | Keep the Data buffers in GPU memory and communicate with them directly (see [GPU mode](#gpu-mode)) |
 | `-h`, `--help`, `-help` | — | Print usage (common flags + benchmark-specific options if any) and exit |
 
 > **Tip:** every benchmark accepts `-h` (or `--help`); benchmarks with extra flags (`pairwise_*`, `kpartners_nb`, `ring_*`, `stencil_2d_nb`) append a `Benchmark-specific options` section listing them.
@@ -153,6 +174,23 @@ The sampler implementations can be verified independently:
 
 ```bash
 mpirun -n 1 build/bin/dist_test
+```
+
+## GPU mode
+
+`-gpu` runs the same MPI calls on **device pointers** (GPU-aware MPI): each Benchmark keeps its host buffers and host fill/verify code, and hands MPI device copies of them.  Only the Data buffers move to the GPU; the per-iteration timings, request arrays and the result gather stay on the host, and the timed region is unchanged (the device copies are made before it, and `-debug` verification copies back after it).
+
+* **Requirements.**  A binary built with a GPU backend (see [GPU support](#gpu-support)) and an MPI that accepts GPU pointers: Open MPI built with CUDA/ROCm support and UCX (`ompi_info --parsable | grep mpi_built_with_cuda_support`), or Cray MPICH with `MPICH_GPU_SUPPORT_ENABLED=1`.  A binary built without a backend exits with `built without GPU support`.
+* **Device selection.**  Rank *r* uses device `local_rank % visible_devices`, set after `MPI_Init`.  With launcher GPU binding (e.g. Slurm) each rank usually sees a single device.  If more ranks than GPUs share a node a warning is printed and the ranks share devices.
+* **Startup probe.**  Before the benchmark runs, every `-gpu` run performs an untimed ring `MPI_Sendrecv` and an `MPI_Allreduce` on device buffers and aborts with `GPU-aware MPI probe FAILED` if the data is wrong.  The first line also prints what the MPI itself reports about GPU support, when it can be queried.
+* **One-sided benchmarks** (`incast_get`, `incast_put`) additionally probe `MPI_Put`/`MPI_Get` on a window over device memory.  Some MPIs accept this and silently transfer nothing; Blink then aborts with `one-sided ... on GPU memory is not supported by this MPI` instead of reporting meaningless timings.
+* **Executables without Data buffers** (`barrier_b`, `barrier_nb`, `null_dummy`, `dist_test`) accept `-gpu`, run exactly as before and print a warning that the flag has no effect.
+* **Output.**  All GPU messages go to stderr, once, from rank 0; stdout is unchanged.  Under `-debug` each rank also prints `DEBUG rank=R gpu=1 device=D` and, at exit, `DEBUG rank=R mirrors=N` (the number of device copies it created).
+* **GPU memory.**  Each Data buffer is allocated once per rank on its device (`-msgsize` × number of ranks for the all-to-all style benchmarks).  Ranks sharing a GPU add up.  A failed device allocation aborts with the CUDA/HIP error text.
+
+```bash
+mpirun -n 4 build-cuda/bin/alltoall_b -gpu -msgsize 1048576 -iter 20
+mpirun -n 4 build-cuda/bin/pairwise_nb -gpu -debug      # check=OK per rank, device buffers
 ```
 
 ## Auxiliary tools

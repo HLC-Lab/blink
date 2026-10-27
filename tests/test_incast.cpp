@@ -216,6 +216,15 @@ class IncastGetTest : public ::testing::Test {
 protected:
     static constexpr int N      = 8;
     static constexpr int MASTER = 0;
+    /* GPU twin: one-sided on device memory is not supported by every MPI (the -gpu runtime
+     * aborts with "not supported by this MPI" when its probe sees no data arrive). */
+    void SetUp() override {
+        if (blink::gpu_mode()) {
+            auto r = blink::run_debug_capture("incast_get", 2);
+            if (!r.normal_exit || r.exit_code != 0)
+                GTEST_SKIP() << "one-sided on GPU memory unsupported by this MPI";
+        }
+    }
 };
 
 TEST_F(IncastGetTest, Coverage) {
@@ -275,6 +284,15 @@ class IncastPutTest : public ::testing::Test {
 protected:
     static constexpr int N      = 8;
     static constexpr int MASTER = 0;
+    /* GPU twin: one-sided on device memory is not supported by every MPI (the -gpu runtime
+     * aborts with "not supported by this MPI" when its probe sees no data arrive). */
+    void SetUp() override {
+        if (blink::gpu_mode()) {
+            auto r = blink::run_debug_capture("incast_put", 2);
+            if (!r.normal_exit || r.exit_code != 0)
+                GTEST_SKIP() << "one-sided on GPU memory unsupported by this MPI";
+        }
+    }
 };
 
 TEST_F(IncastPutTest, Coverage) {
