@@ -59,9 +59,11 @@ __attribute__((weak)) const char *benchmark_help = NULL;
 
 /* GPU-mode capability flags.  Overridden by strong definitions in the few executables
  * that differ (Buffer-less ones set benchmark_has_data_buffers = 0, the one-sided
- * incast benchmarks set benchmark_uses_rma = 1).                               */
+ * incast benchmarks set benchmark_uses_rma = 1, the nonblocking reductions set
+ * benchmark_uses_nb_reduce = 1).                               */
 __attribute__((weak)) int benchmark_has_data_buffers = 1;
 __attribute__((weak)) int benchmark_uses_rma         = 0;
+__attribute__((weak)) int benchmark_uses_nb_reduce   = 0;
 
 #ifndef BLINK_PLOT_MAX_BINS
 #define BLINK_PLOT_MAX_BINS 64

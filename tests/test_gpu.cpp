@@ -53,6 +53,19 @@ TEST(GpuRuntime, OneSidedIsRejectedExplicitlyOrCorrect) {
         }
     }
 }
+
+/* Nonblocking reductions (libnbc reduces on the CPU) crash on device pointers in some MPIs:
+ * either they work or the run aborts with an explicit message, never a bare segfault. */
+TEST(GpuRuntime, NonblockingReductionsAreRejectedExplicitlyOrCorrect) {
+    for (const char *bin : {"allreduce_nb", "reduce_nb", "reduce_scatter_nb"}) {
+        DebugRun r = run_debug_capture(bin, 4, "-gpu");
+        if (r.normal_exit && r.exit_code == 0) {
+            blink::check_all_ok(r.ranks, bin);
+        } else {
+            EXPECT_TRUE(contains(r.stderr_raw, "not supported by this MPI")) << bin << ": " << r.stderr_raw;
+        }
+    }
+}
 #else
 TEST(GpuRuntime, GpuFlagOnHostOnlyBuildFailsClearly) {
     DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu");

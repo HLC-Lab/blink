@@ -100,6 +100,50 @@ static void print_mirror_count(void)
     fflush(stdout);
 }
 
+/* Nonblocking reductions: some MPIs (Open MPI's libnbc) apply the reduction operator on the CPU and
+ * crash on device pointers.  The probe turns that crash into an explicit message. */
+static void on_probe_crash(int sig)
+{
+    (void)sig;
+    if (my_rank == 0) {
+        static const char msg[] = "nonblocking reductions (MPI_Iallreduce/Ireduce/Ireduce_scatter) on GPU memory are "
+                                  "not supported by this MPI: it crashed while reducing device buffers\n";
+        ssize_t w = write(STDERR_FILENO, msg, sizeof msg - 1);
+        (void)w;
+    }
+    _exit(1);
+}
+
+static int probe_nb_reduce(void)
+{
+    enum { N = 16 };
+    int h[N], r[N], i, ok = 1, all = 0;
+    int *ds = (int *)gpu_malloc(N * sizeof(int));
+    int *dr = (int *)gpu_malloc(N * sizeof(int));
+    MPI_Request req;
+    struct sigaction sa, old_segv, old_bus;
+
+    for (i = 0; i < N; i++) h[i] = my_rank + 1;
+    gpu_memcpy_h2d(ds, h, sizeof h);
+    gpu_memset(dr, 0, sizeof h);
+
+    sa.sa_handler = on_probe_crash;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGSEGV, &sa, &old_segv);
+    sigaction(SIGBUS,  &sa, &old_bus);
+    MPI_Iallreduce(ds, dr, N, MPI_INT, MPI_SUM, MPI_COMM_WORLD, &req);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+    sigaction(SIGSEGV, &old_segv, NULL);
+    sigaction(SIGBUS,  &old_bus,  NULL);
+
+    gpu_memcpy_d2h(r, dr, sizeof r);
+    for (i = 0; i < N; i++) if (r[i] != w_size * (w_size + 1) / 2) ok = 0;
+    gpu_free(ds); gpu_free(dr);
+    MPI_Allreduce(&ok, &all, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    return all;
+}
+
 void gpu_setup(void)
 {
     if (!use_gpu) return;
@@ -152,6 +196,16 @@ void gpu_setup(void)
         if (!probe_rma()) {
             if (my_rank == 0)
                 fprintf(stderr, "one-sided (MPI_Win/Put/Get) on GPU memory is not supported by this MPI: data was not transferred\n");
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
+
+    if (benchmark_uses_nb_reduce) {
+        if (my_rank == 0)
+            fprintf(stderr, "probing nonblocking reductions on device memory...\n");
+        if (!probe_nb_reduce()) {
+            if (my_rank == 0)
+                fprintf(stderr, "nonblocking reductions on GPU memory are not supported by this MPI: wrong result\n");
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }

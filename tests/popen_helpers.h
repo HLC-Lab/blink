@@ -149,6 +149,21 @@ inline DebugRun run_debug_capture(const std::string& binary,
     return r;
 }
 
+/* GPU twin only: true when `binary` aborts under -gpu with the runtime's explicit "not supported by this
+ * MPI" message (one-sided or nonblocking reductions on device memory).  Cached per binary. */
+inline bool gpu_unsupported(const std::string& binary)
+{
+    if (!gpu_mode()) return false;
+    static std::map<std::string, bool> cache;
+    auto it = cache.find(binary);
+    if (it != cache.end()) return it->second;
+    DebugRun r = run_debug_capture(binary, 2);
+    bool unsupported = !(r.normal_exit && r.exit_code == 0)
+                    && r.stderr_raw.find("not supported by this MPI") != std::string::npos;
+    cache[binary] = unsupported;
+    return unsupported;
+}
+
 /* Convenience: assert the benchmark ran successfully and return its parsed
  * DEBUG lines.  On failure, dump captured stderr / stdout to gtest output. */
 inline DebugMap run_debug(const std::string& binary,

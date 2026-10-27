@@ -96,6 +96,7 @@ void       *malloc_align(size_t size);
 extern int use_gpu;                       /* set by -gpu; cleared again for Buffer-less executables */
 extern int benchmark_has_data_buffers;    /* weak default 1; Buffer-less executables define 0        */
 extern int benchmark_uses_rma;            /* weak default 0; incast_get / incast_put define 1        */
+extern int benchmark_uses_nb_reduce;      /* weak default 0; the MPI_I{allreduce,reduce,reduce_scatter} benchmarks define 1 */
 void  gpu_setup(void);                    /* called at the end of parse_common_args                 */
 void *data_mirror(void *host, size_t n);                    /* host ptr in Host mode, else device copy of host[0..n) */
 void  data_push(void *mirror, const void *host, size_t n);  /* host -> mirror (no-op in Host mode)   */

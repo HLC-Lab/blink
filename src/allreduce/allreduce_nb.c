@@ -10,6 +10,9 @@
 #include <sched.h>
 #include "common.h"
 
+/* Nonblocking reduction: -gpu additionally probes MPI_Iallreduce on device memory. */
+int benchmark_uses_nb_reduce = 1;
+
 int main(int argc, char** argv){
 
     /*init MPI world*/
