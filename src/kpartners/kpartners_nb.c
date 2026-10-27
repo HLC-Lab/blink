@@ -149,6 +149,10 @@ int main(int argc, char** argv){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -187,10 +191,10 @@ int main(int argc, char** argv){
                     /*post npartners receives (MPI_ANY_SOURCE: each perm maps exactly one sender to this rank)*/
                     /*post npartners sends to this rank's target in each permutation*/
                     for(p=0;p<npartners;p++){
-                        MPI_Irecv(&recv_buf[(i*npartners+p)*msg_size],msg_size,MPI_BYTE,
+                        MPI_Irecv(&recv_dev[(i*npartners+p)*msg_size],msg_size,MPI_BYTE,
                                   MPI_ANY_SOURCE,antideadlock_tag,MPI_COMM_WORLD,
                                   &recv_requests[i*npartners+p]);
-                        MPI_Isend(send_buf,msg_size,MPI_BYTE,
+                        MPI_Isend(send_dev,msg_size,MPI_BYTE,
                                   perms[p*w_size+my_rank],antideadlock_tag,MPI_COMM_WORLD,
                                   &send_requests[i*npartners+p]);
                     }
@@ -239,12 +243,13 @@ int main(int argc, char** argv){
         for (_p = 0; _p < npartners; _p++) {
             int from = inverse[_p*w_size + my_rank];
             int to   = perms[_p*w_size + my_rank];
-            MPI_Irecv(&recv_buf[_p*msg_size], msg_size, MPI_BYTE, from, 0xD0+_p,
+            MPI_Irecv(&recv_dev[_p*msg_size], msg_size, MPI_BYTE, from, 0xD0+_p,
                       MPI_COMM_WORLD, &dbg_reqs[_p]);
-            MPI_Isend(send_buf, msg_size, MPI_BYTE, to, 0xD0+_p,
+            MPI_Isend(send_dev, msg_size, MPI_BYTE, to, 0xD0+_p,
                       MPI_COMM_WORLD, &dbg_reqs[npartners + _p]);
         }
         MPI_Waitall(npartners*2, dbg_reqs, MPI_STATUSES_IGNORE);
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         for (_p = 0; _p < npartners && _ok; _p++) {
             int expected_from = inverse[_p*w_size + my_rank];
             for (_b = 0; _b < msg_size && _ok; _b++)
@@ -267,6 +272,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     free(send_requests);
     free(recv_requests);
 

@@ -56,6 +56,10 @@ int main(int argc, char** argv){
     for(i=0;i<send_buf_size;i++){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
     
     
     /*print basic info to stdout*/
@@ -99,11 +103,11 @@ int main(int argc, char** argv){
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
                     if(my_rank==master_rank){
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,receiver_rank,0,MPI_COMM_WORLD);
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,receiver_rank,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,receiver_rank,0,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,receiver_rank,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
                     }else{
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,master_rank,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,master_rank,0,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,master_rank,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,master_rank,0,MPI_COMM_WORLD);
                     }
                 }
                 /* record one-way latency (round-trip / 2) */
@@ -125,6 +129,7 @@ int main(int argc, char** argv){
         }
     }while(endless);
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         unsigned char _expected = (my_rank == master_rank)
             ? (unsigned char)receiver_rank : (unsigned char)master_rank;
         int _b, _ok = 1;
@@ -143,6 +148,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     
     /*exit MPI library*/
     MPI_Finalize();
