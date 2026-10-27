@@ -106,6 +106,16 @@ if(BLINK_GPU_BACKEND STREQUAL "NONE" AND (_blink_gpu_req STREQUAL "HIP" OR _blin
 endif()
 message(STATUS "BLINK_GPU: requested ${BLINK_GPU}, using ${BLINK_GPU_BACKEND}")
 
+# The GPU tests need a GPU and a GPU-aware MPI.  A machine that merely has a toolkit installed (AUTO) must keep a
+# green plain `ctest`, so they are opt-in there and on by default only when CUDA/HIP was requested explicitly.
+if(_blink_gpu_req STREQUAL "CUDA" OR _blink_gpu_req STREQUAL "HIP")
+    set(_blink_gpu_tests_default ON)
+else()
+    set(_blink_gpu_tests_default OFF)
+endif()
+option(BLINK_GPU_TESTS "Register the GPU tests (_gpu twins, test_gpu_layer); needs a GPU and a GPU-aware MPI"
+       ${_blink_gpu_tests_default})
+
 add_subdirectory(src)
 
 option(BLINK_TESTS "Build correctness tests (requires GTest)" ON)

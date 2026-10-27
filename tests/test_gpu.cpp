@@ -22,7 +22,7 @@ TEST(GpuRuntime, HelpDocumentsFlag) {
     EXPECT_TRUE(contains(r.stdout_raw, "-gpu")) << r.stdout_raw;
 }
 
-#if BLINK_GPU_BUILD
+#if BLINK_GPU_BUILD && BLINK_GPU_TESTS
 TEST(GpuRuntime, EachRankReportsGpuAndDevice) {
     DebugRun r = run_debug_capture("alltoall_b", 4, "-gpu");
     ASSERT_EQ(r.exit_code, 0) << r.stderr_raw;
@@ -54,6 +54,21 @@ TEST(GpuRuntime, OneSidedIsRejectedExplicitlyOrCorrect) {
     }
 }
 
+/* A non-GPU-aware MPI dereferences the device pointer on the CPU and segfaults.  Force that with Open MPI's
+ * host-only components: the run must end with an explicit message, never a bare crash. */
+TEST(GpuRuntime, NonGpuAwareMpiIsRejectedExplicitly) {
+    setenv("OMPI_MCA_pml", "ob1", 1);
+    setenv("OMPI_MCA_btl", "self,sm", 1);
+    setenv("OMPI_MCA_accelerator", "null", 1);
+    DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu");
+    unsetenv("OMPI_MCA_pml"); unsetenv("OMPI_MCA_btl"); unsetenv("OMPI_MCA_accelerator");
+    if (r.normal_exit && r.exit_code == 0) {
+        blink::check_all_ok(r.ranks, "alltoall_b");
+    } else {
+        EXPECT_TRUE(contains(r.stderr_raw, "not GPU-aware")) << r.stderr_raw;
+    }
+}
+
 /* Nonblocking reductions (libnbc reduces on the CPU) crash on device pointers in some MPIs:
  * either they work or the run aborts with an explicit message, never a bare segfault. */
 TEST(GpuRuntime, NonblockingReductionsAreRejectedExplicitlyOrCorrect) {
@@ -66,7 +81,7 @@ TEST(GpuRuntime, NonblockingReductionsAreRejectedExplicitlyOrCorrect) {
         }
     }
 }
-#else
+#elif !BLINK_GPU_BUILD
 TEST(GpuRuntime, GpuFlagOnHostOnlyBuildFailsClearly) {
     DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu");
     EXPECT_NE(r.exit_code, 0);
