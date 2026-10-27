@@ -41,6 +41,19 @@ if the data does not arrive, instead of reporting meaningless timings.
 **To ask:** on the target clusters' MPI, is one-sided communication on GPU buffers expected to work (and with which
 MPI/UCX settings)? Should those two benchmarks simply be Host-mode-only?
 
+## 4. Nonblocking reductions on GPU memory (`allreduce_nb`, `reduce_nb`, `reduce_scatter_nb`)
+
+**Finding (2026-10-27, same machine):** the blocking reductions work on device pointers, but `MPI_Iallreduce`,
+`MPI_Ireduce` and `MPI_Ireduce_scatter` segfault inside Open MPI's libnbc (the reduction operator is applied on the
+CPU to a device address).
+
+**Current assumption:** same policy as one-sided: `-gpu` on these three benchmarks runs a tiny probe (with a
+SIGSEGV/SIGBUS handler) and aborts with an explicit "not supported by this MPI" message. On an MPI that supports them
+(e.g. with a GPU-aware libnbc/UCC) the probe passes and the benchmarks run.
+
+**To ask:** is it acceptable that the three `_nb` reduction benchmarks are unavailable in GPU mode on some MPIs, or
+should they get a different path (e.g. UCC)? Does the target cluster's MPI support them?
+
 ## Checks for the final Opus review (not for the professor)
 
 ### stderr output and the CRAB wrappers

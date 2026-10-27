@@ -88,7 +88,7 @@ ctest --test-dir build -R test_collectives --output-on-failure
 
 ### GPU tests
 
-With a GPU backend every suite also gets a `<suite>_gpu` ctest entry: the same binary run with `BLINK_TEST_GPU=1`, which appends `-gpu` to every benchmark launch and additionally fails a run whose ranks report `gpu=1` but created no device copy.  `test_gpu` covers the `-gpu` runtime itself and `test_gpu_layer` the CUDA/HIP wrapper.  All GPU tests share one `ctest` resource lock so they run one at a time.  The one-sided incast cases are skipped when the MPI cannot move device-memory windows.
+With a GPU backend every suite also gets a `<suite>_gpu` ctest entry: the same binary run with `BLINK_TEST_GPU=1`, which appends `-gpu` to every benchmark launch and additionally fails a run whose ranks report `gpu=1` but created no device copy.  `test_gpu` covers the `-gpu` runtime itself and `test_gpu_layer` the CUDA/HIP wrapper.  All GPU tests share one `ctest` resource lock so they run one at a time.  The one-sided incast cases and the nonblocking-reduction cases are skipped when the MPI cannot handle device memory for them.
 
 ```bash
 ctest --test-dir build-cuda -R _gpu --output-on-failure
@@ -184,6 +184,7 @@ mpirun -n 1 build/bin/dist_test
 * **Device selection.**  Rank *r* uses device `local_rank % visible_devices`, set after `MPI_Init`.  With launcher GPU binding (e.g. Slurm) each rank usually sees a single device.  If more ranks than GPUs share a node a warning is printed and the ranks share devices.
 * **Startup probe.**  Before the benchmark runs, every `-gpu` run performs an untimed ring `MPI_Sendrecv` and an `MPI_Allreduce` on device buffers and aborts with `GPU-aware MPI probe FAILED` if the data is wrong.  The first line also prints what the MPI itself reports about GPU support, when it can be queried.
 * **One-sided benchmarks** (`incast_get`, `incast_put`) additionally probe `MPI_Put`/`MPI_Get` on a window over device memory.  Some MPIs accept this and silently transfer nothing; Blink then aborts with `one-sided ... on GPU memory is not supported by this MPI` instead of reporting meaningless timings.
+* **Nonblocking reductions** (`allreduce_nb`, `reduce_nb`, `reduce_scatter_nb`) are probed the same way: some MPIs (Open MPI's libnbc) apply the reduction operator on the CPU and crash on device pointers while the blocking reductions work.  Blink runs a tiny `MPI_Iallreduce` on device memory first and aborts with `nonblocking reductions ... are not supported by this MPI` instead of a bare segfault.
 * **Executables without Data buffers** (`barrier_b`, `barrier_nb`, `null_dummy`, `dist_test`) accept `-gpu`, run exactly as before and print a warning that the flag has no effect.
 * **Output.**  All GPU messages go to stderr, once, from rank 0; stdout is unchanged.  Under `-debug` each rank also prints `DEBUG rank=R gpu=1 device=D` and, at exit, `DEBUG rank=R mirrors=N` (the number of device copies it created).
 * **GPU memory.**  Each Data buffer is allocated once per rank on its device (`-msgsize` × number of ranks for the all-to-all style benchmarks).  Ranks sharing a GPU add up.  A failed device allocation aborts with the CUDA/HIP error text.
