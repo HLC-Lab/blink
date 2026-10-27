@@ -154,6 +154,7 @@ int main(int argc, char **argv)
     const size_t one_buf   = (size_t)msg_size;
     const size_t total_buf = one_buf * (size_t)ntags;
     unsigned char *send_buf = NULL, *recv_buf = NULL;
+    unsigned char *send_dev = NULL, *recv_dev = NULL;   /*GPU mode: device mirrors (host pointers in host mode)*/
     MPI_Request *reqs = (MPI_Request*)malloc((size_t)ntags * sizeof(MPI_Request));
     if (!reqs) {
         if (my_rank == master_rank)
@@ -173,8 +174,11 @@ int main(int argc, char **argv)
                 memcpy(send_buf + (size_t)i * one_buf, &t, sizeof(int));
             }
         }
+        /*mirror after the host tag write (equivalent to data_push; tags are never rewritten)*/
+        send_dev = (unsigned char*)data_mirror(send_buf, total_buf);
     } else {
         recv_buf = (unsigned char*)malloc_align(total_buf);
+        recv_dev = (unsigned char*)data_mirror(recv_buf, total_buf);
     }
 
     if (my_rank == master_rank) {
@@ -208,7 +212,7 @@ int main(int argc, char **argv)
                 /* Sender: post all Isends in sendorder, then Waitall. */
                 for (i = 0; i < ntags; i++) {
                     int t = send_tags[i];
-                    MPI_Isend(send_buf + (size_t)i * one_buf, msg_size, MPI_BYTE,
+                    MPI_Isend(send_dev + (size_t)i * one_buf, msg_size, MPI_BYTE,
                               1, t, MPI_COMM_WORLD, &reqs[i]);
                 }
                 MPI_Waitall(ntags, reqs, MPI_STATUSES_IGNORE);
@@ -218,7 +222,7 @@ int main(int argc, char **argv)
                     /* Targets PRQ path: post all N Irecvs first, then Waitall. */
                     for (i = 0; i < ntags; i++) {
                         int t = wildcard ? MPI_ANY_TAG : recv_tags[i];
-                        MPI_Irecv(recv_buf + (size_t)i * one_buf, msg_size, MPI_BYTE,
+                        MPI_Irecv(recv_dev + (size_t)i * one_buf, msg_size, MPI_BYTE,
                                   0, t, MPI_COMM_WORLD, &reqs[i]);
                     }
                     MPI_Waitall(ntags, reqs, MPI_STATUSES_IGNORE);
@@ -229,7 +233,7 @@ int main(int argc, char **argv)
                     for (i = 0; i < ntags; i++) {
                         int t = wildcard ? MPI_ANY_TAG : recv_tags[i];
                         MPI_Request req;
-                        MPI_Irecv(recv_buf + (size_t)i * one_buf, msg_size, MPI_BYTE,
+                        MPI_Irecv(recv_dev + (size_t)i * one_buf, msg_size, MPI_BYTE,
                                   0, t, MPI_COMM_WORLD, &req);
                         MPI_Wait(&req, MPI_STATUS_IGNORE);
                     }
@@ -249,6 +253,7 @@ done:
          * that tag — which encodes the tag itself in its first 4 bytes.
          * Wildcard mode is order-indeterminate, so we skip verification. */
         if (my_rank == 1 && !wildcard && msg_size >= (int)sizeof(int)) {
+            data_fetch(recv_buf, recv_dev, total_buf);
             for (i = 0; i < ntags && check_ok; i++) {
                 int got;
                 memcpy(&got, recv_buf + (size_t)i * one_buf, sizeof(int));
@@ -271,6 +276,8 @@ done:
     free(recv_tags);
     if (send_buf) free(send_buf);
     if (recv_buf) free(recv_buf);
+    if (send_dev) data_free(send_dev);
+    if (recv_dev) data_free(recv_dev);
     free(durations);
 
     MPI_Finalize();

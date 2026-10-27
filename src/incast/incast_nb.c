@@ -62,6 +62,10 @@ int main(int argc, char** argv){
         }
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -96,11 +100,11 @@ int main(int argc, char** argv){
                 for(i=0;i<measure_granularity;i++){
                     if (my_rank==master_rank){
                         for(j=0;j<w_size-1;j++){
-                            MPI_Irecv(&recv_buf[(size_t)(i*(w_size-1)+j)*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
+                            MPI_Irecv(&recv_dev[(size_t)(i*(w_size-1)+j)*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
                                     ,MPI_ANY_TAG, MPI_COMM_WORLD,&recv_requests[i*(w_size-1)+j]);
                         }
                     }else{
-                        MPI_Isend(send_buf,msg_size,MPI_BYTE,master_rank,my_rank,MPI_COMM_WORLD, &send_requests[i]);
+                        MPI_Isend(send_dev,msg_size,MPI_BYTE,master_rank,my_rank,MPI_COMM_WORLD, &send_requests[i]);
                     }
                 }
                 if (my_rank==master_rank){
@@ -138,8 +142,9 @@ int main(int argc, char** argv){
             int s, _b, slot = 0;
             for (s = 0; s < w_size; s++) {
                 if (s == master_rank) continue;
-                MPI_Recv(&recv_buf[slot*msg_size], msg_size, MPI_BYTE,
+                MPI_Recv(&recv_dev[slot*msg_size], msg_size, MPI_BYTE,
                          s, 0xD, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                data_fetch(&recv_buf[slot*msg_size], &recv_dev[slot*msg_size], msg_size);
                 for (_b = 0; _b < msg_size && _ok; _b++)
                     if (recv_buf[(size_t)slot*msg_size + _b] != (unsigned char)s) _ok = 0;
                 slot++;
@@ -147,7 +152,7 @@ int main(int argc, char** argv){
             printf("DEBUG rank=%d nprocs=%d nsenders=%d check=%s\n",
                    my_rank, w_size, w_size - 1, _ok ? "OK" : "FAIL");
         } else {
-            MPI_Send(send_buf, msg_size, MPI_BYTE, master_rank, 0xD, MPI_COMM_WORLD);
+            MPI_Send(send_dev, msg_size, MPI_BYTE, master_rank, 0xD, MPI_COMM_WORLD);
             printf("DEBUG rank=%d nprocs=%d target=%d check=OK\n",
                    my_rank, w_size, master_rank);
         }
@@ -163,6 +168,8 @@ done:
     free(durations);
     free(recv_buf);
     free(send_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     free(send_requests);
     free(recv_requests);
     
