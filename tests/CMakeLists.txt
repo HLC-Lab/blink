@@ -10,15 +10,30 @@
 function(add_benchmark_test name nprocs)
     add_executable(${name} ${name}.cpp)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(BLINK_GPU_BACKEND STREQUAL "NONE")
+        set(_gpu_build 0)
+    else()
+        set(_gpu_build 1)
+    endif()
     target_compile_definitions(${name} PRIVATE
         "BLINK_BIN_DIR=\"${CMAKE_BINARY_DIR}/bin\""
         "BLINK_MPIEXEC=\"${MPIEXEC_EXECUTABLE}\""
-        "BLINK_NPROC_FLAG=\"${MPIEXEC_NUMPROC_FLAG}\"")
+        "BLINK_NPROC_FLAG=\"${MPIEXEC_NUMPROC_FLAG}\""
+        "BLINK_GPU_BUILD=${_gpu_build}")
     target_link_libraries(${name} PRIVATE GTest::GTest GTest::Main)
     set_target_properties(${name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
     add_test(NAME ${name} COMMAND ${name})
     set_tests_properties(${name} PROPERTIES PROCESSORS ${nprocs})
+    # GPU twin: same binary, every benchmark launched with -gpu.  Serialized on one
+    # lock because ranks of all suites would otherwise stack on the same GPU(s).
+    if(_gpu_build AND NOT "NO_GPU_VARIANT" IN_LIST ARGN)
+        add_test(NAME ${name}_gpu COMMAND ${name})
+        set_tests_properties(${name}_gpu PROPERTIES
+            PROCESSORS ${nprocs}
+            ENVIRONMENT "BLINK_TEST_GPU=1"
+            RESOURCE_LOCK gpu)
+    endif()
 endfunction()
 
 # ── Registered tests ──────────────────────────────────────────────────────────

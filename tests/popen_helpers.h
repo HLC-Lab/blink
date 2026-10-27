@@ -35,6 +35,9 @@ inline std::string mpiexec()    { return env_or("BLINK_MPIEXEC",    BLINK_MPIEXE
 inline std::string nproc_flag() { return env_or("BLINK_NPROC_FLAG", BLINK_NPROC_FLAG); }
 inline std::string bin_dir()    { return env_or("BLINK_BIN_DIR",    BLINK_BIN_DIR);    }
 
+/* true when the suite should run every benchmark in GPU mode (-gpu appended). */
+inline bool gpu_mode() { return env_or("BLINK_TEST_GPU", "0") == "1"; }
+
 /* A single parsed DEBUG line: rank => key/value map. */
 using DebugFields = std::map<std::string, std::string>;
 using DebugMap    = std::map<int, DebugFields>;
@@ -95,7 +98,7 @@ inline DebugRun run_debug_capture(const std::string& binary,
     r.command = mpiexec() + " " + nproc_flag() + " "
               + std::to_string(nprocs) + " "
               + bin_dir() + "/" + binary
-              + " -debug -iter 1 -warmup 0 " + extra
+              + " -debug -iter 1 -warmup 0 " + (gpu_mode() ? "-gpu " : "") + extra
               + " 2>" + errfile;
 
     FILE *pipe = popen(r.command.c_str(), "r");
@@ -110,7 +113,11 @@ inline DebugRun run_debug_capture(const std::string& binary,
         r.stdout_raw += line;
         DebugFields fields;
         int rank = parse_debug_line(line, fields);
-        if (rank >= 0) r.ranks[rank] = std::move(fields);
+        if (rank >= 0) {
+            /* merge: a rank may print several DEBUG lines (e.g. the -gpu runtime's own) */
+            auto &dst = r.ranks[rank];
+            for (auto &kv : fields) dst[kv.first] = kv.second;
+        }
     }
     int status = pclose(pipe);
     if (status == -1) {
