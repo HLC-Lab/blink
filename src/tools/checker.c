@@ -48,6 +48,10 @@ int main(int argc, char** argv){
         send_buf[bi]='a';
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -110,7 +114,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Alltoall(send_buf,msg_size,MPI_BYTE,recv_buf,msg_size,MPI_BYTE,MPI_COMM_WORLD);
+                    MPI_Alltoall(send_dev,msg_size,MPI_BYTE,recv_dev,msg_size,MPI_BYTE,MPI_COMM_WORLD);
                 }
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time); /*write result to ring buffer*/
                 curr_iters++;
@@ -159,6 +163,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
 
     /*exit MPI library*/
     MPI_Finalize();

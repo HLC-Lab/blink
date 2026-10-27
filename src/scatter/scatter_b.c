@@ -55,6 +55,11 @@ int main(int argc, char** argv){
     recv_buf=(unsigned char*)malloc_align(msg_size);
     durations=(double *)malloc_align(sizeof(double)*max_samples);
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = NULL;   /*only the root has a send buffer*/
+    if(my_rank==master_rank) send_dev = (unsigned char*)data_mirror(send_buf, (size_t)w_size*msg_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, msg_size);
+
 
     /*print basic info to stdout*/
     if(my_rank==master_rank){
@@ -88,7 +93,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Scatter(send_buf,msg_size,MPI_BYTE,recv_buf,msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD);
+                    MPI_Scatter(send_dev,msg_size,MPI_BYTE,recv_dev,msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD);
                 }
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);
                 curr_iters++;
@@ -109,6 +114,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, msg_size);
         int _b, _ok = 1;
         for (_b = 0; _b < msg_size && _ok; _b++)
             if (recv_buf[_b] != (unsigned char)my_rank) _ok = 0;
@@ -126,6 +132,8 @@ done:
     free(durations);
     free(recv_buf);
     if(my_rank==master_rank) free(send_buf);
+    if(my_rank==master_rank) data_free(send_dev);
+    data_free(recv_dev);
 
     /*exit MPI library*/
     MPI_Finalize();
