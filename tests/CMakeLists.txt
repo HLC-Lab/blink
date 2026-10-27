@@ -47,6 +47,9 @@ add_benchmark_test(test_kpartners   8)
 add_benchmark_test(test_stencil     8)
 add_benchmark_test(test_tagmatch    4)
 add_benchmark_test(test_misc        8)
+add_benchmark_test(test_gpu         4 NO_GPU_VARIANT)
+# test_gpu drives the GPU too: serialize it with the _gpu twins.
+set_tests_properties(test_gpu PROPERTIES RESOURCE_LOCK gpu)
 
 # ── GPU wrapper unit test (GPU builds only) ───────────────────────────────────
 if(NOT BLINK_GPU_BACKEND STREQUAL "NONE")

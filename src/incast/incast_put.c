@@ -10,6 +10,9 @@
 #include <sched.h>
 #include "common.h"
 
+/* One-sided benchmark: -gpu additionally probes MPI_Win/Put/Get on device memory. */
+int benchmark_uses_rma = 1;
+
 int main(int argc, char** argv){
 
     /*init MPI world*/

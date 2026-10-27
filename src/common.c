@@ -37,6 +37,7 @@ double burst_pause         = 0.0;
 int    burst_pause_rand    = 0;   /* set by -bpdist */
 int    pretty_output       = 0;
 int    debug_mode          = 0;
+int    use_gpu             = 0;
 
 /* runtime-distribution plot (-plot). */
 int    plot_output     = 0;
@@ -55,6 +56,12 @@ double pause_shape     = 1.5;
  * strong definition at file scope (a one-liner `const char *benchmark_help =
  * "..."` in the .c file).  Benchmarks with no custom flags need do nothing. */
 __attribute__((weak)) const char *benchmark_help = NULL;
+
+/* GPU-mode capability flags.  Overridden by strong definitions in the few executables
+ * that differ (Buffer-less ones set benchmark_has_data_buffers = 0, the one-sided
+ * incast benchmarks set benchmark_uses_rma = 1).                               */
+__attribute__((weak)) int benchmark_has_data_buffers = 1;
+__attribute__((weak)) int benchmark_uses_rma         = 0;
 
 #ifndef BLINK_PLOT_MAX_BINS
 #define BLINK_PLOT_MAX_BINS 64
@@ -200,6 +207,7 @@ void print_help(const char *progname)
 "  -grty <int>                   ops per timed window (granularity, default 1)\n"
 "  -maxsamples <int>             cap on per-rank samples stored (default 1000)\n"
 "  -debug                        print per-rank DEBUG lines instead of timings\n"
+"  -gpu                          keep Data buffers in GPU memory (needs a GPU-aware MPI)\n"
 "  -pretty-print                 human-readable output (default: CSV row)\n"
 "\n"
 "Burst / pause (idle gaps between bursts of communication):\n"
@@ -301,6 +309,7 @@ int parse_common_args(int argc, char **argv)
         else if (strcmp(argv[i], "-maxsamples")   == 0) { max_samples         = atoi(arg_value(argc, argv, &i)); }
         else if (strcmp(argv[i], "-pretty-print") == 0) { pretty_output       = 1;               }
         else if (strcmp(argv[i], "-debug")        == 0) { debug_mode          = 1;               }
+        else if (strcmp(argv[i], "-gpu")          == 0) { use_gpu             = 1;               }
         else if (strcmp(argv[i], "-plot")         == 0) { plot_output         = 1;               }
         else if (strcmp(argv[i], "-plotstat")     == 0) { strncpy(plot_stat, arg_value(argc, argv, &i), 15);
                                                           plot_stat[15] = '\0';                   }
@@ -372,6 +381,7 @@ int parse_common_args(int argc, char **argv)
         }
     }
 
+    gpu_setup();
     return new_argc;
 }
 

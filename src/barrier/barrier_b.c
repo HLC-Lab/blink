@@ -10,6 +10,9 @@
 #include <sched.h>
 #include "common.h"
 
+/* No Data buffers (only the host-side durations array): -gpu has no effect. */
+int benchmark_has_data_buffers = 0;
+
 int main(int argc, char** argv){
 
     /*init MPI world*/
