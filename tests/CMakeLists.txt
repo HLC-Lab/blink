@@ -32,3 +32,14 @@ add_benchmark_test(test_kpartners   8)
 add_benchmark_test(test_stencil     8)
 add_benchmark_test(test_tagmatch    4)
 add_benchmark_test(test_misc        8)
+
+# ── GPU wrapper unit test (GPU builds only) ───────────────────────────────────
+if(NOT BLINK_GPU_BACKEND STREQUAL "NONE")
+    add_executable(test_gpu_layer test_gpu_layer.cpp)
+    target_include_directories(test_gpu_layer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(test_gpu_layer PRIVATE GTest::GTest GTest::Main blink_common)
+    set_target_properties(test_gpu_layer PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    add_test(NAME test_gpu_layer COMMAND test_gpu_layer)
+    set_tests_properties(test_gpu_layer PROPERTIES RESOURCE_LOCK gpu)
+endif()
