@@ -52,11 +52,6 @@ int main(int argc, char** argv){
     recv_buf=(unsigned char*)malloc_align(recv_buf_size);
     durations=(double *)malloc_align(sizeof(double)*max_samples);
     
-    MPI_Win_create(recv_buf, recv_buf_size, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &rma_win);
-
-    /* MPI_Win is an opaque handle, not a pointer — do not compare to NULL.
-     * Window creation errors are surfaced via the runtime error handler.   */
-
     /*fill send buffer: rank-as-payload under -debug so the master can verify
      * delivered RMA contents.                                              */
     if(my_rank!=master_rank){
@@ -64,6 +59,14 @@ int main(int argc, char** argv){
             send_buf[bi] = debug_mode ? (unsigned char)my_rank : 'a';
         }
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
+    /*window over the device mirror (in host mode the host buffer)*/
+    MPI_Win_create(recv_dev, recv_buf_size, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &rma_win);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -98,7 +101,7 @@ int main(int argc, char** argv){
                 MPI_Win_fence(MPI_MODE_NOPRECEDE,rma_win);
                 for(i=0;i<measure_granularity;i++){
                     if(my_rank!=master_rank){
-                        MPI_Put(send_buf,msg_size,MPI_BYTE,master_rank
+                        MPI_Put(send_dev,msg_size,MPI_BYTE,master_rank
                             ,(MPI_Aint)my_rank*msg_size*measure_granularity+(MPI_Aint)i*msg_size,msg_size,MPI_BYTE,rma_win);
                     }
                 }
@@ -126,6 +129,7 @@ int main(int argc, char** argv){
      * filled send_buf with their rank.                                    */
     if (debug_mode) {
         if (my_rank == master_rank) {
+            data_fetch(recv_buf, recv_dev, recv_buf_size);
             int s, _b, _ok = 1;
             for (s = 0; s < w_size && _ok; s++) {
                 if (s == master_rank) continue;
@@ -151,6 +155,8 @@ done:
     free(durations);
     free(recv_buf);
     free(send_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     
     /*exit MPI library*/
     MPI_Finalize();

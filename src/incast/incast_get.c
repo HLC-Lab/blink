@@ -52,17 +52,23 @@ int main(int argc, char** argv){
     recv_buf=(unsigned char*)malloc_align(recv_buf_size);
     durations=(double *)malloc_align(sizeof(double)*max_samples);
     
-    MPI_Win_create(send_buf,send_buf_size,1,MPI_INFO_NULL,MPI_COMM_WORLD,&rma_win);
-
-    /* MPI_Win is an opaque handle, not a pointer — do not compare to NULL.
-     * Window creation errors are surfaced via the runtime error handler.   */
-
     /*fill send buffer: rank-as-payload under -debug so the master can verify
      *  delivered RMA contents.  Initialise even on master so any peer that
      *  reads the window observes defined bytes.                            */
     for(size_t bi=0;bi<send_buf_size;bi++){
         send_buf[bi] = debug_mode ? (unsigned char)my_rank : 'a';
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
+    /*window over the device mirror (in host mode the host buffer); created after the fill so the mirror holds the payload*/
+    MPI_Win_create(send_dev,send_buf_size,1,MPI_INFO_NULL,MPI_COMM_WORLD,&rma_win);
+
+    /* MPI_Win is an opaque handle, not a pointer — do not compare to NULL.
+     * Window creation errors are surfaced via the runtime error handler.   */
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -99,7 +105,7 @@ int main(int argc, char** argv){
                     for(i=0;i<measure_granularity;i++){
                         for(j=0;j<w_size;j++){
                                 if(j!=master_rank){
-                                    MPI_Get(&recv_buf[(size_t)j*msg_size*measure_granularity+(size_t)i*msg_size],
+                                    MPI_Get(&recv_dev[(size_t)j*msg_size*measure_granularity+(size_t)i*msg_size],
                                         msg_size, MPI_BYTE, j, 0, msg_size, MPI_BYTE, rma_win);
                             }
                         }
@@ -129,6 +135,7 @@ int main(int argc, char** argv){
      * sender j's bytes at offset j*msg_size*measure_granularity.          */
     if (debug_mode) {
         if (my_rank == master_rank) {
+            data_fetch(recv_buf, recv_dev, recv_buf_size);
             int s, _b, _ok = 1;
             for (s = 0; s < w_size && _ok; s++) {
                 if (s == master_rank) continue;
@@ -154,6 +161,8 @@ done:
     free(durations);
     free(recv_buf);
     free(send_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     
     /*exit MPI library*/
     MPI_Finalize();
