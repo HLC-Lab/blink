@@ -62,6 +62,10 @@ int main(int argc, char** argv){
     for(i=0;i<send_buf_size;i++){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
     
     /*print basic info to stdout*/
     if(my_rank==master_rank){
@@ -103,28 +107,28 @@ int main(int argc, char** argv){
                 if(my_rank<w_size/2){
                     measure_start_time=MPI_Wtime();
                     for(i=0;i<measure_granularity;i++){
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD);
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
                     }
                     if (k >= warm_up_iters) record_duration((MPI_Wtime()-measure_start_time)/2.0);
                 }else{
                     for(i=0;i<measure_granularity;i++){
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD);
                     }
                 }
                 /*other-way around*/
                 if(my_rank>=w_size/2){
                     measure_start_time=MPI_Wtime();
                     for(i=0;i<measure_granularity;i++){
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD);
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
                     }
                     if (k >= warm_up_iters) record_duration((MPI_Wtime()-measure_start_time)/2.0);
                 }else{
                     for(i=0;i<measure_granularity;i++){
-                        MPI_Recv(recv_buf,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-                        MPI_Send(send_buf,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD);
+                        MPI_Recv(recv_dev,msg_size,MPI_BYTE,partner,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                        MPI_Send(send_dev,msg_size,MPI_BYTE,partner,1,MPI_COMM_WORLD);
                     }
                 }               
                 curr_iters++;
@@ -145,6 +149,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         int _b, _ok = 1;
         for (_b = 0; _b < msg_size && _ok; _b++)
             if (recv_buf[_b] != (unsigned char)partner) _ok = 0;
@@ -162,6 +167,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     
     /*exit MPI library*/
     MPI_Finalize();

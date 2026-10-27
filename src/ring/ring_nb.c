@@ -68,6 +68,10 @@ int main(int argc, char** argv){
     for(i=0;i<send_buf_size;i++){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
     
     /*setup ring*/
     for(i=0;i<w_size;i++){
@@ -127,13 +131,13 @@ int main(int argc, char** argv){
                 antideadlock_tag=0; /* reset per timed window so the tag never grows unbounded (stays < MPI_TAG_UB on long/endless runs) */
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Irecv(&recv_buf[2*i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[2*i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                             ,antideadlock_tag, MPI_COMM_WORLD,&recv_requests[2*i]);
-                    MPI_Irecv(&recv_buf[(2*i+1)*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[(2*i+1)*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                             ,antideadlock_tag, MPI_COMM_WORLD,&recv_requests[2*i+1]);
-                    MPI_Isend(send_buf,msg_size,MPI_BYTE,left_neighbor
+                    MPI_Isend(send_dev,msg_size,MPI_BYTE,left_neighbor
                             ,antideadlock_tag,MPI_COMM_WORLD, &send_requests[2*i]);
-                    MPI_Isend(send_buf,msg_size,MPI_BYTE,right_neighbor
+                    MPI_Isend(send_dev,msg_size,MPI_BYTE,right_neighbor
                             ,antideadlock_tag,MPI_COMM_WORLD, &send_requests[2*i+1]);
                     antideadlock_tag++;
                 }
@@ -167,13 +171,16 @@ int main(int argc, char** argv){
          * stack VLA, which would risk a stack overflow for large msg_size   */
         unsigned char *left_buf  = recv_buf;
         unsigned char *right_buf = recv_buf + msg_size;
+        unsigned char *left_dev  = recv_dev;
+        unsigned char *right_dev = recv_dev + msg_size;
         MPI_Request reqs[4];
         int _ok = 1, _b;
-        MPI_Irecv(left_buf,  msg_size, MPI_BYTE, left_neighbor,  0xD, MPI_COMM_WORLD, &reqs[0]);
-        MPI_Irecv(right_buf, msg_size, MPI_BYTE, right_neighbor, 0xD, MPI_COMM_WORLD, &reqs[1]);
-        MPI_Isend(send_buf,  msg_size, MPI_BYTE, left_neighbor,  0xD, MPI_COMM_WORLD, &reqs[2]);
-        MPI_Isend(send_buf,  msg_size, MPI_BYTE, right_neighbor, 0xD, MPI_COMM_WORLD, &reqs[3]);
+        MPI_Irecv(left_dev,  msg_size, MPI_BYTE, left_neighbor,  0xD, MPI_COMM_WORLD, &reqs[0]);
+        MPI_Irecv(right_dev, msg_size, MPI_BYTE, right_neighbor, 0xD, MPI_COMM_WORLD, &reqs[1]);
+        MPI_Isend(send_dev,  msg_size, MPI_BYTE, left_neighbor,  0xD, MPI_COMM_WORLD, &reqs[2]);
+        MPI_Isend(send_dev,  msg_size, MPI_BYTE, right_neighbor, 0xD, MPI_COMM_WORLD, &reqs[3]);
         MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         for (_b = 0; _b < msg_size && _ok; _b++)
             if (left_buf[_b]  != (unsigned char)left_neighbor)  _ok = 0;
         for (_b = 0; _b < msg_size && _ok; _b++)
@@ -194,6 +201,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     free(recv_requests);
     free(send_requests);
     
