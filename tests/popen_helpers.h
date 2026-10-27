@@ -180,11 +180,15 @@ inline DebugMap run_debug(const std::string& binary,
         << "command: " << r.command << "\n"
         << "stderr:\n" << r.stderr_raw << "\n"
         << "stdout:\n" << r.stdout_raw;
-    /* In GPU mode every rank that reported gpu=1 must have handed device mirrors to MPI;
-     * mirrors=0 means the benchmark ignored -gpu (not ported to the data_* calls). */
+    /* In GPU mode every rank must report gpu=1 (unless the executable said -gpu has no effect: Buffer-less) and
+     * must have handed device mirrors to MPI; mirrors=0 means the benchmark ignored -gpu (not ported). */
     if (gpu_mode()) {
+        bool bufferless = r.stderr_raw.find("has no effect") != std::string::npos;
         for (const auto& [rk, fields] : r.ranks) {
             auto g = fields.find("gpu");
+            if (bufferless) continue;
+            EXPECT_TRUE(g != fields.end() && g->second == "1")
+                << binary << " rank " << rk << ": -gpu given but the rank did not report gpu=1";
             if (g == fields.end() || g->second != "1") continue;
             auto m = fields.find("mirrors");
             EXPECT_TRUE(m != fields.end() && m->second != "0")

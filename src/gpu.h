@@ -14,6 +14,7 @@ int         gpu_available(void);                          /* 1 if built with CUD
 const char *gpu_backend_name(void);                       /* "CUDA" | "HIP" | "none"            */
 int         gpu_device_count(void);                       /* 0 if none visible / not built      */
 void        gpu_set_device(int dev);
+int         gpu_device_pci_id(int dev, char *buf, int len); /* 0 on success; identifies the physical device */
 void       *gpu_malloc(size_t n);                         /* never NULL, fatal on failure; n==0 -> 1 byte */
 void        gpu_free(void *p);
 void        gpu_memset(void *dst, int value, size_t n);

@@ -6,6 +6,11 @@
 using blink::DebugRun;
 using blink::run_debug_capture;
 
+#if BLINK_GPU_BUILD && BLINK_GPU_TESTS
+#include "gpu.h"
+static int gpu_device_count_for_test() { return gpu_device_count(); }
+#endif
+
 static bool contains(const std::string &s, const char *needle) { return s.find(needle) != std::string::npos; }
 
 /* A Buffer-less executable accepts -gpu, runs, and warns once (any build). */
@@ -15,6 +20,24 @@ TEST(GpuRuntime, BufferlessExecutableWarnsAndRuns) {
     EXPECT_EQ(r.exit_code, 0) << r.stderr_raw;
     EXPECT_TRUE(contains(r.stderr_raw, "has no effect")) << r.stderr_raw;
     EXPECT_FALSE(contains(r.stdout_raw, "has no effect"));
+}
+
+/* The Tools null_dummy and dist_test ignore their arguments (CRAB documents null_dummy that way);
+ * -gpu support must not make them parse, validate or reject the common flags. */
+TEST(GpuRuntime, ToolsStillIgnoreTheirArguments) {
+    for (const char *bin : {"null_dummy", "dist_test"}) {
+        DebugRun r = run_debug_capture(bin, 2, "-grty 0 -mrank 7 -maxsamples 0");
+        EXPECT_TRUE(r.normal_exit) << bin;
+        EXPECT_EQ(r.exit_code, 0) << bin << ": " << r.stderr_raw;
+    }
+}
+
+TEST(GpuRuntime, ToolsWarnThatGpuHasNoEffect) {
+    for (const char *bin : {"null_dummy", "dist_test"}) {
+        DebugRun r = run_debug_capture(bin, 2, "-gpu");
+        EXPECT_EQ(r.exit_code, 0) << bin << ": " << r.stderr_raw;
+        EXPECT_TRUE(contains(r.stderr_raw, "has no effect")) << bin << ": " << r.stderr_raw;
+    }
 }
 
 TEST(GpuRuntime, HelpDocumentsFlag) {
@@ -34,6 +57,16 @@ TEST(GpuRuntime, EachRankReportsGpuAndDevice) {
         /* send + recv buffer were handed to MPI as device mirrors */
         EXPECT_EQ(blink::get_int(r.ranks, k, "mirrors"), 2) << "alltoall_b rank " << k;
     }
+}
+
+/* Two ranks on this one-GPU machine really share a device: warned once, on stderr. */
+TEST(GpuRuntime, RanksSharingAGpuAreWarnedOnce) {
+    if (gpu_device_count_for_test() != 1) GTEST_SKIP() << "needs exactly one visible GPU";
+    DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu");
+    ASSERT_EQ(r.exit_code, 0) << r.stderr_raw;
+    size_t first = r.stderr_raw.find("share a GPU");
+    EXPECT_NE(first, std::string::npos) << r.stderr_raw;
+    EXPECT_EQ(r.stderr_raw.find("share a GPU", first + 1), std::string::npos) << r.stderr_raw;
 }
 
 TEST(GpuRuntime, ZeroByteMessagesWork) {

@@ -30,7 +30,7 @@ static const char *mpi_reports_gpu_support(void)
 }
 
 /* Untimed collective check that the MPI moves data from/to device memory:
- * a ring MPI_Sendrecv and an MPI_Allreduce(SUM) over ints.  Returns 1 on all ranks if correct. */
+ * a ring MPI_Sendrecv and an MPI_Allreduce(MAX) over ints (MAX: no overflow at any rank count).  Returns 1 on all ranks if correct. */
 static int probe_pt2pt(void)
 {
     enum { N = 16 };
@@ -47,9 +47,9 @@ static int probe_pt2pt(void)
     for (i = 0; i < N; i++) if (r[i] != from + 1) ok = 0;
 
     gpu_memset(dr, 0, sizeof h);
-    MPI_Allreduce(ds, dr, N, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(ds, dr, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
     gpu_memcpy_d2h(r, dr, sizeof r);
-    for (i = 0; i < N; i++) if (r[i] != w_size * (w_size + 1) / 2) ok = 0;
+    for (i = 0; i < N; i++) if (r[i] != w_size) ok = 0;
 
     gpu_free(ds); gpu_free(dr);
     MPI_Allreduce(&ok, &all, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
@@ -102,15 +102,17 @@ static void print_mirror_count(void)
 
 /* Crash guard.  A probe that hands device pointers to an MPI which cannot use them usually dies with
  * SIGSEGV/SIGBUS inside the MPI (the CPU dereferences a device address) instead of returning an error.
- * While a guard is on, such a crash prints `crash_msg` (rank 0 only) and exits non-zero. */
-static const char     *crash_msg = NULL;
+ * While a guard is on, such a crash prints "rank R: <msg>" and exits non-zero.  Every crashing rank prints: the
+ * launcher kills the job as soon as one rank dies, so a message left to rank 0 is lost when another rank faults first. */
+static char             crash_msg[512];
+static size_t           crash_len = 0;   /* 0: no guard on */
 static struct sigaction old_segv, old_bus;
 
 static void on_probe_crash(int sig)
 {
     (void)sig;
-    if (my_rank == 0 && crash_msg) {
-        ssize_t w = write(STDERR_FILENO, crash_msg, strlen(crash_msg));
+    if (crash_len) {
+        ssize_t w = write(STDERR_FILENO, crash_msg, crash_len);   /* write(): async-signal-safe */
         (void)w;
     }
     _exit(1);
@@ -119,7 +121,8 @@ static void on_probe_crash(int sig)
 static void crash_guard_on(const char *msg)
 {
     struct sigaction sa;
-    crash_msg = msg;
+    int n = snprintf(crash_msg, sizeof crash_msg, "rank %d: %s", my_rank, msg);
+    crash_len = (n < 0) ? 0 : ((size_t)n < sizeof crash_msg ? (size_t)n : sizeof crash_msg - 1);
     sa.sa_handler = on_probe_crash;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
@@ -131,7 +134,7 @@ static void crash_guard_off(void)
 {
     sigaction(SIGSEGV, &old_segv, NULL);
     sigaction(SIGBUS,  &old_bus,  NULL);
-    crash_msg = NULL;
+    crash_len = 0;
 }
 
 /* Nonblocking reductions: some MPIs (Open MPI's libnbc) apply the reduction operator on the CPU and
@@ -139,7 +142,7 @@ static void crash_guard_off(void)
 static int probe_nb_reduce(void)
 {
     enum { N = 16 };
-    long long want = (long long)w_size * (w_size + 1) / 2;
+    int want = w_size;   /* MAX over my_rank + 1 */
     int i, ok = 1, all = 0, *h, *recvcounts;
     int *ds = (int *)gpu_malloc(N * sizeof(int));
     int *dr = (int *)gpu_malloc(N * sizeof(int));
@@ -157,14 +160,14 @@ static int probe_nb_reduce(void)
 
     /* MPI_Iallreduce */
     gpu_memset(dr, 0, sizeof r);
-    MPI_Iallreduce(ds, dr, N, MPI_INT, MPI_SUM, MPI_COMM_WORLD, &req);
+    MPI_Iallreduce(ds, dr, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     gpu_memcpy_d2h(r, dr, sizeof r);
     for (i = 0; i < N; i++) if (r[i] != want) ok = 0;
 
     /* MPI_Ireduce (result on rank 0) */
     gpu_memset(dr, 0, sizeof r);
-    MPI_Ireduce(ds, dr, N, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD, &req);
+    MPI_Ireduce(ds, dr, N, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     if (my_rank == 0) {
         gpu_memcpy_d2h(r, dr, sizeof r);
@@ -173,7 +176,7 @@ static int probe_nb_reduce(void)
 
     /* MPI_Ireduce_scatter (one element per rank) */
     gpu_memset(drs_out, 0, sizeof(int));
-    MPI_Ireduce_scatter(drs_in, drs_out, recvcounts, MPI_INT, MPI_SUM, MPI_COMM_WORLD, &req);
+    MPI_Ireduce_scatter(drs_in, drs_out, recvcounts, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
     gpu_memcpy_d2h(&one, drs_out, sizeof one);
     if (one != want) ok = 0;
@@ -202,11 +205,10 @@ void gpu_setup(void)
 
     /* node-local rank -> device */
     MPI_Comm local;
-    int lrank, lsize, ndev, over, any_over, dev;
+    int lrank, lsize, ndev, shared, any_shared, dev, j;
     MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, my_rank, MPI_INFO_NULL, &local);
     MPI_Comm_rank(local, &lrank);
     MPI_Comm_size(local, &lsize);
-    MPI_Comm_free(&local);
     ndev = gpu_device_count();
     if (ndev <= 0) {
         fprintf(stderr, "rank %d: -gpu: no %s device visible\n", my_rank, gpu_backend_name());
@@ -215,14 +217,32 @@ void gpu_setup(void)
     dev = lrank % ndev;
     gpu_set_device(dev);
 
-    over = (lsize > ndev);
-    MPI_Allreduce(&over, &any_over, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    /* Do ranks of this node really share a device?  Compare PCI ids: with launcher GPU binding every rank sees
+     * one device (ndev == 1) but each has its own, so counting (lsize > ndev) alone would warn falsely. */
+    {
+        enum { IDLEN = 32 };
+        char id[IDLEN] = {0}, *ids = (char *)calloc((size_t)lsize, IDLEN);
+        int known = (gpu_device_pci_id(dev, id, IDLEN) == 0), all_known = 0;
+        MPI_Allreduce(&known, &all_known, 1, MPI_INT, MPI_MIN, local);
+        MPI_Allgather(id, IDLEN, MPI_CHAR, ids, IDLEN, MPI_CHAR, local);
+        shared = 0;
+        if (all_known) {
+            for (j = 0; j < lsize; j++)
+                if (j != lrank && strncmp(ids + (size_t)j * IDLEN, id, IDLEN) == 0) shared = 1;
+        } else {
+            shared = (lsize > ndev);   /* no id to compare: fall back to counting */
+        }
+        free(ids);
+    }
+    MPI_Comm_free(&local);
+    MPI_Allreduce(&shared, &any_shared, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
     if (my_rank == 0) {
         fprintf(stderr, "GPU mode: backend %s, %d device(s) visible on node of rank 0; "
                         "MPI reports GPU support: %s; probing GPU-aware MPI...\n",
                 gpu_backend_name(), ndev, mpi_reports_gpu_support());
-        if (any_over)
-            fprintf(stderr, "warning: more ranks than GPUs on some node; ranks share devices (device = local_rank %% #devices)\n");
+        if (any_shared)
+            fprintf(stderr, "warning: ranks share a GPU on some node (device = local_rank %% #visible devices); "
+                            "their timings interfere\n");
     }
 
     crash_guard_on("this MPI is not GPU-aware: it crashed while moving device memory (Sendrecv/Allreduce); "
@@ -266,6 +286,16 @@ void gpu_setup(void)
         fflush(stdout);
         atexit(print_mirror_count);
     }
+}
+
+/* For the Tools (null_dummy, dist_test), which ignore their arguments: honour only -gpu, which then warns that it
+ * has no effect (they define benchmark_has_data_buffers = 0).  No other argument is parsed, validated or rejected. */
+void gpu_tool_args(int argc, char **argv)
+{
+    int i;
+    for (i = 1; i < argc; i++)
+        if (strcmp(argv[i], "-gpu") == 0) use_gpu = 1;
+    gpu_setup();
 }
 
 void *data_mirror(void *host, size_t n)

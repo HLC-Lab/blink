@@ -56,6 +56,7 @@ add_benchmark_test(test_misc        8)
 add_benchmark_test(test_gpu         4 NO_GPU_VARIANT)
 # test_gpu drives the GPU too: serialize it with the _gpu twins.
 set_tests_properties(test_gpu PROPERTIES RESOURCE_LOCK gpu)
+target_link_libraries(test_gpu PRIVATE blink_common)   # gpu_device_count() for the device-sharing test
 
 # ── GPU wrapper unit test (GPU builds only) ───────────────────────────────────
 if(NOT BLINK_GPU_BACKEND STREQUAL "NONE" AND BLINK_GPU_TESTS)

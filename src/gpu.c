@@ -15,6 +15,7 @@
 #  define gpuGetErrorString       cudaGetErrorString
 #  define gpuGetDeviceCount       cudaGetDeviceCount
 #  define gpuSetDevice            cudaSetDevice
+#  define gpuDeviceGetPCIBusId    cudaDeviceGetPCIBusId
 #  define gpuMalloc               cudaMalloc
 #  define gpuFree                 cudaFree
 #  define gpuMemset               cudaMemset
@@ -31,6 +32,7 @@
 #  define gpuGetErrorString       hipGetErrorString
 #  define gpuGetDeviceCount       hipGetDeviceCount
 #  define gpuSetDevice            hipSetDevice
+#  define gpuDeviceGetPCIBusId    hipDeviceGetPCIBusId
 #  define gpuMalloc               hipMalloc
 #  define gpuFree                 hipFree
 #  define gpuMemset               hipMemset
@@ -44,9 +46,10 @@
 static void gpu_fail(const char *what, const char *why)
 {
     fprintf(stderr, "GPU error in %s: %s\n", what, why);
-    int init = 0;
+    int init = 0, fin = 0;
     MPI_Initialized(&init);
-    if (init) MPI_Abort(MPI_COMM_WORLD, -1);
+    MPI_Finalized(&fin);
+    if (init && !fin) MPI_Abort(MPI_COMM_WORLD, -1);
     exit(1);
 }
 
@@ -68,6 +71,11 @@ int gpu_device_count(void)
 }
 
 void gpu_set_device(int dev) { GPU_CHECK(gpuSetDevice(dev)); }
+
+int gpu_device_pci_id(int dev, char *buf, int len)
+{
+    return gpuDeviceGetPCIBusId(buf, len, dev) == gpuSuccess ? 0 : -1;
+}
 
 void *gpu_malloc(size_t n)
 {
@@ -93,6 +101,7 @@ int         gpu_available(void)    { return 0; }
 const char *gpu_backend_name(void) { return "none"; }
 int         gpu_device_count(void) { return 0; }
 void        gpu_set_device(int dev) { (void)dev; NO_GPU(); }
+int         gpu_device_pci_id(int dev, char *buf, int len) { (void)dev; (void)buf; (void)len; return -1; }
 void       *gpu_malloc(size_t n)    { (void)n; NO_GPU(); return NULL; }
 void        gpu_free(void *p)      { (void)p; NO_GPU(); }
 void        gpu_memset(void *d, int v, size_t n)               { (void)d; (void)v; (void)n; NO_GPU(); }

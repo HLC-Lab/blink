@@ -176,7 +176,7 @@ int main(int argc, char **argv)
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &w_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-    parse_common_args(argc, argv);   /* accepts -gpu (no effect: no Data buffers) */
+    gpu_tool_args(argc, argv);   /* ignores every argument except -gpu (which only warns) */
 
     if (my_rank != 0) { MPI_Finalize(); return 0; }
 

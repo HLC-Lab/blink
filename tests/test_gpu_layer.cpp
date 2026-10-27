@@ -1,6 +1,7 @@
 /* Unit test of the vendor wrapper (src/gpu.c).  Built only for GPU builds. */
 #include <gtest/gtest.h>
 #include <vector>
+#include <cstring>
 #include "gpu.h"
 
 TEST(GpuLayer, BackendIsReported) {
@@ -38,4 +39,11 @@ TEST(GpuLayer, ZeroByteAllocationIsUsable) {
     void *p = gpu_malloc(0);
     EXPECT_NE(p, nullptr);
     gpu_free(p);
+}
+
+/* PCI id: how gpu_setup tells ranks that really share a device from ranks bound to different ones. */
+TEST(GpuLayer, PciIdIsReported) {
+    char id[32] = {0};
+    ASSERT_EQ(gpu_device_pci_id(0, id, sizeof id), 0);
+    EXPECT_GT(strlen(id), 0u);
 }

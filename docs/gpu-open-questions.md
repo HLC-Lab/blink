@@ -13,7 +13,8 @@ visibility (Slurm GPU binding, `CUDA_VISIBLE_DEVICES`), each rank sees one devic
 - a) Would a direct, user-chosen rank-to-GPU mapping (e.g. a `-gpumap` style flag) be useful for the experiments, or
   is the automatic mapping good enough?
 - b) What should happen when ranks per node exceed GPUs per node? Current assumption: wrap around
-  (`local_rank % ngpus`) and print one warning from rank 0. Alternative: refuse to run.
+  (`local_rank % ngpus`) and print one warning from rank 0 when ranks really share a physical GPU (compared by PCI
+  id, so one-GPU-per-rank launcher binding does not warn). Alternative: refuse to run.
 
 ## 2. Where the timed region starts in GPU mode
 
@@ -69,6 +70,19 @@ executables and what they do with stdout and stderr. Confirm that:
 - they don't treat any stderr output as a failure;
 - the Blink test harness (`popen` in `tests/popen_helpers.h`) only reads stdout, or tolerates stderr;
 - the `-gpu` flag passes through the wrappers' argument handling and doesn't clash with a flag of their own.
+
+**Result (2026-10-27):** checked, no problem on either side.
+- CRAB builds `<mpirun|srun ...> <binary> <args>` (`CRAB/src/crab/wrappers/base.py`) and runs it with stdout and
+  stderr as separate pipes (`core/process/manager.py`); stderr is only copied to a log, never merged into stdout.
+- The Blink wrappers (`crab-wrappers/blink/_microbench_common.py`, `read_data`) parse only stdout, starting at the
+  CSV header, and skip lines that don't start with a digit.
+- A run fails only on a non-zero exit code; stderr is then written to the failure log, so a "not supported by this
+  MPI" abort shows up there.
+- `args` is passed verbatim, so `-gpu` reaches the binary; no wrapper has a GPU flag or sets `CUDA_VISIBLE_DEVICES`.
+- `null_dummy` is documented in `crab-wrappers/blink/README.md` as ignoring its arguments, so `null_dummy` and
+  `dist_test` keep ignoring every argument except `-gpu`.
+- A pre-existing CRAB-side risk unrelated to `-gpu`: stderr is a pipe that is read only after the process exits, so
+  more than about 64 KB of stderr (a very chatty UCX/CUDA stack) would block the run until its timeout.
 
 ### Branch lifecycle
 
