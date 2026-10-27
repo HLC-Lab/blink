@@ -62,6 +62,11 @@ int main(int argc, char** argv){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, msg_size);
+    unsigned char *recv_dev = NULL;   /*only the root has a receive buffer*/
+    if(my_rank==master_rank) recv_dev = (unsigned char*)data_mirror(recv_buf, (size_t)measure_granularity*w_size*msg_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -96,8 +101,8 @@ int main(int argc, char** argv){
                 for(i=0;i<measure_granularity;i++){
                     /* recvbuf is significant only at the root; keep it NULL elsewhere
                      * to avoid pointer arithmetic on a non-root's NULL buffer.       */
-                    unsigned char *rbuf = (my_rank==master_rank) ? recv_buf+(size_t)i*w_size*msg_size : NULL;
-                    MPI_Igather(send_buf,msg_size,MPI_BYTE,rbuf,msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD,&requests[i]);
+                    unsigned char *rbuf = (my_rank==master_rank) ? recv_dev+(size_t)i*w_size*msg_size : NULL;
+                    MPI_Igather(send_dev,msg_size,MPI_BYTE,rbuf,msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD,&requests[i]);
                 }
                 MPI_Waitall(measure_granularity,requests,MPI_STATUSES_IGNORE);
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);
@@ -119,6 +124,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        if (my_rank == master_rank) data_fetch(recv_buf, recv_dev, (size_t)measure_granularity*w_size*msg_size);
         int _r, _b, _ok = 1;
         if (my_rank == master_rank)
             for (_r = 0; _r < w_size && _ok; _r++)
@@ -139,6 +145,8 @@ done:
     free(send_buf);
     free(requests);
     if(my_rank==master_rank) free(recv_buf);
+    data_free(send_dev);
+    if(my_rank==master_rank) data_free(recv_dev);
 
     /*exit MPI library*/
     MPI_Finalize();
