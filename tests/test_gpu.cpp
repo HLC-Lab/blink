@@ -77,6 +77,10 @@ TEST(GpuRuntime, NoVisibleDeviceIsReportedOncePerNode) {
     setenv("ROCR_VISIBLE_DEVICES", "", 1);
     for (int run = 0; run < 5; run++) {
         DebugRun r = run_debug_capture("alltoall_b", 4, "-gpu");
+        if (r.exit_code == 0 && contains(r.stderr_raw, "device(s) visible")) {
+            unsetenv("CUDA_VISIBLE_DEVICES"); unsetenv("HIP_VISIBLE_DEVICES"); unsetenv("ROCR_VISIBLE_DEVICES");
+            GTEST_SKIP() << "the launcher re-sets the device visibility (e.g. Slurm --gres), cannot hide the GPUs from here";
+        }
         EXPECT_NE(r.exit_code, 0);
         size_t first = r.stderr_raw.find("device visible");
         ASSERT_NE(first, std::string::npos) << r.stderr_raw;
@@ -108,10 +112,20 @@ TEST(GpuRuntime, OneSidedIsRejectedExplicitlyOrCorrect) {
  * host-only components: the run must end with an explicit message, never a bare crash. */
 TEST(GpuRuntime, NonGpuAwareMpiIsRejectedExplicitly) {
     setenv("OMPI_MCA_pml", "ob1", 1);
-    setenv("OMPI_MCA_btl", "self,sm", 1);
     setenv("OMPI_MCA_accelerator", "null", 1);
-    DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu");
+    DebugRun r;
+    bool started = false;
+    for (const char *btl : {"self,sm", "self,vader"}) {   /* the shared-memory BTL is "sm" in Open MPI 5, "vader" in 4 */
+        setenv("OMPI_MCA_btl", btl, 1);
+        r = run_debug_capture("alltoall_b", 2, "-gpu");
+        /* "MPI_INIT failed" (Open MPI 4) / "An error occurred in MPI_Init" (Open MPI 5) */
+        if (!contains(r.stderr_raw, "MPI_INIT failed") && !contains(r.stderr_raw, "error occurred in MPI_Init")) {
+            started = true;
+            break;
+        }
+    }
     unsetenv("OMPI_MCA_pml"); unsetenv("OMPI_MCA_btl"); unsetenv("OMPI_MCA_accelerator");
+    if (!started) GTEST_SKIP() << "this MPI cannot start with host-only components:\n" << r.stderr_raw;
     if (r.normal_exit && r.exit_code == 0) {
         blink::check_all_ok(r.ranks, "alltoall_b");
     } else {
