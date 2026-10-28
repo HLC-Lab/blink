@@ -210,9 +210,19 @@ void gpu_setup(void)
     MPI_Comm_rank(local, &lrank);
     MPI_Comm_size(local, &lsize);
     ndev = gpu_device_count();
-    if (ndev <= 0) {
-        fprintf(stderr, "rank %d: -gpu: no %s device visible\n", my_rank, gpu_backend_name());
-        MPI_Abort(MPI_COMM_WORLD, -1);
+    {
+        /* Decide together, report once per node (its local rank 0), and only then abort: without the barrier the
+         * first rank to abort would kill the reporting ranks before they print. */
+        int none = (ndev <= 0), any_none = 0;
+        MPI_Allreduce(&none, &any_none, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+        if (any_none) {
+            if (none && lrank == 0)
+                fprintf(stderr, "rank %d (first rank of its node): -gpu: no %s device visible\n",
+                        my_rank, gpu_backend_name());
+            fflush(stderr);
+            MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Abort(MPI_COMM_WORLD, -1);
+        }
     }
     dev = lrank % ndev;
     gpu_set_device(dev);

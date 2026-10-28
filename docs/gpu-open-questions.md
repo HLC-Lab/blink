@@ -55,6 +55,12 @@ SIGSEGV/SIGBUS handler) and aborts with an explicit "not supported by this MPI" 
 **To ask:** is it acceptable that the three `_nb` reduction benchmarks are unavailable in GPU mode on some MPIs, or
 should they get a different path (e.g. UCC)? Does the target cluster's MPI support them?
 
+## Known limitations (not for the professor)
+
+- `gpu_setup()` runs inside `parse_common_args`, so the GPU startup probes run before a benchmark validates its own
+  flags (rank count for `pingpong_*`/`tagmatch_nb`, `-k` for `kpartners_nb`).  A bad flag therefore aborts about a
+  second later than it would in Host mode.  The probes are untimed.  Not changed: it would touch every benchmark.
+
 ## Checks for the final Opus review (not for the professor)
 
 ### stderr output and the CRAB wrappers

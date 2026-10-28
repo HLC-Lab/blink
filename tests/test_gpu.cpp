@@ -69,6 +69,23 @@ TEST(GpuRuntime, RanksSharingAGpuAreWarnedOnce) {
     EXPECT_EQ(r.stderr_raw.find("share a GPU", first + 1), std::string::npos) << r.stderr_raw;
 }
 
+/* A job without a GPU (e.g. Slurm without --gres): the "no device visible" message is printed once per node,
+ * not once per rank.  Ranks race to abort, so a single run can show one message by luck: repeat. */
+TEST(GpuRuntime, NoVisibleDeviceIsReportedOncePerNode) {
+    setenv("CUDA_VISIBLE_DEVICES", "", 1);
+    setenv("HIP_VISIBLE_DEVICES", "", 1);
+    setenv("ROCR_VISIBLE_DEVICES", "", 1);
+    for (int run = 0; run < 5; run++) {
+        DebugRun r = run_debug_capture("alltoall_b", 4, "-gpu");
+        EXPECT_NE(r.exit_code, 0);
+        size_t first = r.stderr_raw.find("device visible");
+        ASSERT_NE(first, std::string::npos) << r.stderr_raw;
+        EXPECT_EQ(r.stderr_raw.find("device visible", first + 1), std::string::npos)
+            << "run " << run << ": " << r.stderr_raw;
+    }
+    unsetenv("CUDA_VISIBLE_DEVICES"); unsetenv("HIP_VISIBLE_DEVICES"); unsetenv("ROCR_VISIBLE_DEVICES");
+}
+
 TEST(GpuRuntime, ZeroByteMessagesWork) {
     DebugRun r = run_debug_capture("alltoall_b", 2, "-gpu -msgsize 0");
     EXPECT_EQ(r.exit_code, 0) << r.stderr_raw;
