@@ -64,6 +64,14 @@ version or machine.
 mode, and the blocking `allreduce_b`/`reduce_b`/`reduce_scatter_b` work in GPU mode), or should they get a different
 path (e.g. UCC, or another Open MPI version)?
 
+## TODO
+
+- **Lighter CI.**  The `compile-only (CUDA)` job installs the whole `nvidia-cuda-toolkit` apt package (several GB; it
+  took about 2 minutes on one run and over 15 on another, on a docs-only commit).  Options: install only the CUDA
+  runtime headers/`libcudart` (e.g. `nvidia-cuda-toolkit` replaced by the smaller `cuda-cudart-dev` from NVIDIA's
+  repo), cache the apt packages, and run the GPU compile jobs only when `src/`, `CMakeLists.txt` or `.github/` change
+  (a `paths:` filter).  Not started.
+
 ## Known limitations (not for the professor)
 
 - `gpu_setup()` runs inside `parse_common_args`, so the GPU startup probes run before a benchmark validates its own
