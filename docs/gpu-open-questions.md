@@ -39,8 +39,12 @@ returns without any error but the data does not arrive (verified against an iden
 **Current assumption:** `-gpu` on these two benchmarks first runs a one-sided probe and aborts with a clear message
 if the data does not arrive, instead of reporting meaningless timings.
 
-**To ask:** on the target clusters' MPI, is one-sided communication on GPU buffers expected to work (and with which
-MPI/UCX settings)? Should those two benchmarks simply be Host-mode-only?
+**Leonardo (2026-10-28, Open MPI 4.1.6 + UCX 1.16 from HPC-X, CUDA 12.2, A100 nodes, 8 ranks over 2 nodes):** the
+probe passes and both benchmarks run on device memory with `check=OK` on every rank.  So one-sided on GPU buffers works
+there; only the laptop's Open MPI 5.0.11 + UCX loses the data.  The probe stays as a safeguard for MPIs like that one.
+
+**To ask:** nothing blocking any more.  For the record: should these two stay available in GPU mode only where the probe
+passes (current behaviour), or be documented as supported only on specific MPI/UCX stacks?
 
 ## 4. Nonblocking reductions on GPU memory (`allreduce_nb`, `reduce_nb`, `reduce_scatter_nb`)
 
@@ -52,14 +56,35 @@ CPU to a device address).
 SIGSEGV/SIGBUS handler) and aborts with an explicit "not supported by this MPI" message. On an MPI that supports them
 (e.g. with a GPU-aware libnbc/UCC) the probe passes and the benchmarks run.
 
-**To ask:** is it acceptable that the three `_nb` reduction benchmarks are unavailable in GPU mode on some MPIs, or
-should they get a different path (e.g. UCC)? Does the target cluster's MPI support them?
+**Leonardo (2026-10-28, Open MPI 4.1.6 + UCX 1.16, 8 ranks over 2 nodes):** same result as the laptop: the probe
+catches the crash and `-gpu` stops with the explicit message on all three.  So it is not specific to one Open MPI
+version or machine.
+
+**To ask:** is it acceptable that the three `_nb` reduction benchmarks are unavailable in GPU mode (they work in Host
+mode, and the blocking `allreduce_b`/`reduce_b`/`reduce_scatter_b` work in GPU mode), or should they get a different
+path (e.g. UCC, or another Open MPI version)?
 
 ## Known limitations (not for the professor)
 
 - `gpu_setup()` runs inside `parse_common_args`, so the GPU startup probes run before a benchmark validates its own
   flags (rank count for `pingpong_*`/`tagmatch_nb`, `-k` for `kpartners_nb`).  A bad flag therefore aborts about a
   second later than it would in Host mode.  The probes are untimed.  Not changed: it would touch every benchmark.
+
+## Leonardo validation (2026-10-28)
+
+Open MPI 4.1.6 (CUDA 12.2) + UCX 1.16, 1 node with 4 A100 (64 GB) and 2 nodes, run through `srun` in a `salloc`.
+
+| Check | Result |
+|---|---|
+| Test suite on real GPUs (9 `_gpu` twins, `test_gpu`, `test_gpu_layer`) | passed; 3 tests had environment assumptions that do not hold under Slurm / Open MPI 4 and now skip (see git log) |
+| 4 ranks, 4 visible GPUs | `device=0..3`, no sharing warning |
+| 4 ranks, `srun --gpus-per-task=1` (each rank sees 1 GPU) | `device=0` on every rank, **no sharing warning** (PCI-id check) |
+| 8 ranks on 4 GPUs | `device=0..3,0..3`, sharing warning exactly once |
+| `incast_get`, `incast_put` | work on device memory, `check=OK` |
+| `allreduce_nb`, `reduce_nb`, `reduce_scatter_nb` | rejected with the explicit message |
+| Inter-node, 1 MiB: `pingpong_b` (2 ranks), `alltoall_b` (8 ranks) | `check=OK` on every rank |
+
+The MPI reports GPU support (`MPI reports GPU support: yes`); UCX was configured with CUDA and gdrcopy.
 
 ## Checks for the final Opus review (not for the professor)
 
