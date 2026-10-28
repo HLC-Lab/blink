@@ -107,6 +107,10 @@ int main(int argc, char** argv){
         send_buf[i] = debug_mode ? (unsigned char)my_rank : 'a';
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *send_dev = (unsigned char*)data_mirror(send_buf, send_buf_size);
+    unsigned char *recv_dev = (unsigned char*)data_mirror(recv_buf, recv_buf_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -145,9 +149,9 @@ int main(int argc, char** argv){
                 for(i=0;i<measure_granularity;i++){
                     /*exchange with all 4 neighbors; MPI_PROC_NULL ops complete immediately*/
                     for(d=0;d<4;d++){
-                        MPI_Irecv(&recv_buf[(4*i+d)*msg_size],msg_size,MPI_BYTE,
+                        MPI_Irecv(&recv_dev[(4*i+d)*msg_size],msg_size,MPI_BYTE,
                                   neighbors[d],antideadlock_tag,cart_comm,&recv_requests[4*i+d]);
-                        MPI_Isend(send_buf,msg_size,MPI_BYTE,
+                        MPI_Isend(send_dev,msg_size,MPI_BYTE,
                                   neighbors[d],antideadlock_tag,cart_comm,&send_requests[4*i+d]);
                     }
                     antideadlock_tag++;
@@ -173,6 +177,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         int _d, _b, _ok = 1;
         const int _dirs[4] = {north, south, west, east};
         for (_d = 0; _d < 4 && _ok; _d++) {
@@ -195,6 +200,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     free(send_requests);
     free(recv_requests);
 

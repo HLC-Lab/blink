@@ -78,6 +78,47 @@ else()
 endif()
 add_compile_definitions(_GNU_SOURCE)
 
+# GPU backend selection.  AUTO probes CUDA, then HIP, then falls back to a
+# host-only build.  Only the C runtime libraries are linked: no kernels exist,
+# so neither nvcc nor hipcc is needed.
+set(BLINK_GPU "AUTO" CACHE STRING "GPU backend: AUTO, OFF, CUDA or HIP")
+set_property(CACHE BLINK_GPU PROPERTY STRINGS AUTO OFF CUDA HIP)
+string(TOUPPER "${BLINK_GPU}" _blink_gpu_req)
+if(NOT _blink_gpu_req MATCHES "^(AUTO|OFF|CUDA|HIP)$")
+    message(FATAL_ERROR "BLINK_GPU must be AUTO, OFF, CUDA or HIP (got '${BLINK_GPU}')")
+endif()
+set(BLINK_GPU_BACKEND "NONE")
+if(_blink_gpu_req STREQUAL "CUDA" AND CMAKE_VERSION VERSION_LESS 3.17)
+    message(FATAL_ERROR "BLINK_GPU=CUDA needs CMake >= 3.17 (FindCUDAToolkit); this is ${CMAKE_VERSION}")
+endif()
+if((_blink_gpu_req STREQUAL "CUDA" OR _blink_gpu_req STREQUAL "AUTO") AND NOT CMAKE_VERSION VERSION_LESS 3.17)
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        set(BLINK_GPU_BACKEND "CUDA")
+    elseif(_blink_gpu_req STREQUAL "CUDA")
+        message(FATAL_ERROR "BLINK_GPU=CUDA but no CUDA toolkit was found (set CUDAToolkit_ROOT)")
+    endif()
+endif()
+if(BLINK_GPU_BACKEND STREQUAL "NONE" AND (_blink_gpu_req STREQUAL "HIP" OR _blink_gpu_req STREQUAL "AUTO"))
+    find_package(hip QUIET HINTS /opt/rocm $ENV{ROCM_PATH})
+    if(hip_FOUND)
+        set(BLINK_GPU_BACKEND "HIP")
+    elseif(_blink_gpu_req STREQUAL "HIP")
+        message(FATAL_ERROR "BLINK_GPU=HIP but no ROCm/HIP was found (set CMAKE_PREFIX_PATH=/opt/rocm)")
+    endif()
+endif()
+message(STATUS "BLINK_GPU: requested ${BLINK_GPU}, using ${BLINK_GPU_BACKEND}")
+
+# The GPU tests need a GPU and a GPU-aware MPI.  A machine that merely has a toolkit installed (AUTO) must keep a
+# green plain `ctest`, so they are opt-in there and on by default only when CUDA/HIP was requested explicitly.
+if(_blink_gpu_req STREQUAL "CUDA" OR _blink_gpu_req STREQUAL "HIP")
+    set(_blink_gpu_tests_default ON)
+else()
+    set(_blink_gpu_tests_default OFF)
+endif()
+option(BLINK_GPU_TESTS "Register the GPU tests (_gpu twins, test_gpu_layer); needs a GPU and a GPU-aware MPI"
+       ${_blink_gpu_tests_default})
+
 add_subdirectory(src)
 
 option(BLINK_TESTS "Build correctness tests (requires GTest)" ON)

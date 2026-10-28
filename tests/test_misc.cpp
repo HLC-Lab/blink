@@ -163,6 +163,10 @@ TEST(WarmupExclusion, WarmupSamplesNotRecorded)
  */
 TEST(Shutdown, Sigusr1ToSingleRankShutsDownCleanly)
 {
+    /* BLINK_MPIEXEC overrides the launcher (e.g. srun inside an allocation): the ranks then run on a compute node and
+     * cannot be found with pgrep from here. */
+    if (getenv("BLINK_MPIEXEC"))
+        GTEST_SKIP() << "BLINK_MPIEXEC is set: rank processes may run on another node, cannot signal one from here";
     char outtmpl[] = "/tmp/blink_endl_XXXXXX";
     int ofd = mkstemp(outtmpl);
     ASSERT_GE(ofd, 0);

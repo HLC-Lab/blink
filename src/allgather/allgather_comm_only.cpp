@@ -27,11 +27,11 @@ static inline int copy_buffer_different_dt (const void *input_buffer, size_t sco
   size_t r_size = (size_t) rdtype_size * rcount;
 
   if (r_size < s_size) {
-    memcpy(output_buffer, input_buffer, r_size); // Copy as much as possible
+    data_copy(output_buffer, input_buffer, r_size); // Copy as much as possible
     return MPI_ERR_TRUNCATE;      // Indicate truncation
   }
 
-  memcpy(output_buffer, input_buffer, s_size);        // Perform the memory copy
+  data_copy(output_buffer, input_buffer, s_size);        // Perform the memory copy
 
   return MPI_SUCCESS;
 }
@@ -140,6 +140,10 @@ int main(int argc, char** argv){
         send_buf[i] = debug_mode ? my_rank : 1;
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    int *send_dev = (int*)data_mirror(send_buf, send_buf_size);
+    int *recv_dev = (int*)data_mirror(recv_buf, recv_buf_size);
+
     
     /*print basic info to stdout*/
     if(my_rank==master_rank){
@@ -180,9 +184,9 @@ int main(int argc, char** argv){
                  * batched window as a single sample. */
                 measure_total_time=0.0;
                 for(i=0;i<measure_granularity;i++){
-                    allgather_memcpy(send_buf, msg_size_ints, MPI_INT, recv_buf, msg_size_ints, MPI_INT, MPI_COMM_WORLD);
+                    allgather_memcpy(send_dev, msg_size_ints, MPI_INT, recv_dev, msg_size_ints, MPI_INT, MPI_COMM_WORLD);
                     measure_start_time=MPI_Wtime();
-                    allgather_ring(send_buf, msg_size_ints, MPI_INT, recv_buf, msg_size_ints, MPI_INT, MPI_COMM_WORLD);
+                    allgather_ring(send_dev, msg_size_ints, MPI_INT, recv_dev, msg_size_ints, MPI_INT, MPI_COMM_WORLD);
                     measure_total_time+=MPI_Wtime()-measure_start_time;
                 }
                 if (k >= warm_up_iters) record_duration(measure_total_time);
@@ -204,6 +208,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, recv_buf_size);
         size_t _r, _b;
         int _ok = 1;
         for (_r = 0; _r < (size_t)w_size && _ok; _r++)
@@ -223,6 +228,8 @@ done:
     free(durations);
     free(recv_buf);
     free(send_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     
     /*exit MPI library*/
     MPI_Finalize();

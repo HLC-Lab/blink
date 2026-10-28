@@ -1,0 +1,15 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    { "name": "cpu",  "binaryDir": "${sourceDir}/build-cpu",  "cacheVariables": { "BLINK_GPU": "OFF" } },
+    { "name": "cuda", "binaryDir": "${sourceDir}/build-cuda", "cacheVariables": { "BLINK_GPU": "CUDA" } },
+    { "name": "hip",  "binaryDir": "${sourceDir}/build-hip",
+      "cacheVariables": { "BLINK_GPU": "HIP", "CMAKE_PREFIX_PATH": "/opt/rocm" } }
+  ],
+  "buildPresets": [
+    { "name": "cpu",  "configurePreset": "cpu"  },
+    { "name": "cuda", "configurePreset": "cuda" },
+    { "name": "hip",  "configurePreset": "hip"  }
+  ]
+}

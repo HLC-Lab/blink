@@ -54,6 +54,10 @@ static void check_root(const DebugMap& m, int expected_root, const std::string& 
 class UnrootedCollectiveTest : public ::testing::TestWithParam<std::string> {
 protected:
     static constexpr int N = 8;
+    void SetUp() override {
+        if (blink::gpu_unsupported(GetParam()))
+            GTEST_SKIP() << GetParam() << " on GPU memory is unsupported by this MPI";
+    }
 };
 
 TEST_P(UnrootedCollectiveTest, Coverage) {
@@ -110,6 +114,10 @@ protected:
     static constexpr int N      = 8;
     static constexpr int MASTER = 0;
     static constexpr int ALT    = 3;
+    void SetUp() override {
+        if (blink::gpu_unsupported(GetParam()))
+            GTEST_SKIP() << GetParam() << " on GPU memory is unsupported by this MPI";
+    }
 };
 
 TEST_P(RootedCollectiveTest, Coverage) {
@@ -172,6 +180,8 @@ protected:
     static constexpr int N = 8;
 
     static void check_agreement(const std::string& b_bin, const std::string& nb_bin) {
+        if (blink::gpu_unsupported(b_bin) || blink::gpu_unsupported(nb_bin))
+            GTEST_SKIP() << b_bin << "/" << nb_bin << " on GPU memory is unsupported by this MPI";
         auto b  = run_debug(b_bin,  N);
         auto nb = run_debug(nb_bin, N);
         for (const auto& [r, fields_b] : b) {

@@ -52,6 +52,9 @@ int main(int argc, char** argv){
             buf[bi] = debug_mode ? (unsigned char)master_rank : 'a';
         }
     }
+
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    unsigned char *buf_dev = (unsigned char*)data_mirror(buf, buf_size);
     
     /*print basic info to stdout*/
     if(my_rank==master_rank){
@@ -85,7 +88,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-			        MPI_Bcast(&buf[i*msg_size],msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD);
+			        MPI_Bcast(&buf_dev[i*msg_size],msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD);
 		        }
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);
                 curr_iters++;
@@ -106,6 +109,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(buf, buf_dev, buf_size);
         int _ok = 1;
         unsigned char _fill = (unsigned char)master_rank;
         for (size_t _b = 0; _b < buf_size && _ok; _b++)
@@ -123,6 +127,7 @@ done:
     /*free allocated buffers*/
     free(durations);
     free(buf);
+    data_free(buf_dev);
     
     /*exit MPI library*/
     MPI_Finalize();

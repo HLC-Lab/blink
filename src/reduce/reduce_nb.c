@@ -10,6 +10,9 @@
 #include <sched.h>
 #include "common.h"
 
+/* Nonblocking reduction: -gpu additionally probes MPI_Iallreduce/Ireduce/Ireduce_scatter on device memory. */
+int benchmark_uses_nb_reduce = 1;
+
 int main(int argc, char** argv){
 
     /*init MPI world*/
@@ -63,6 +66,10 @@ int main(int argc, char** argv){
         send_buf[i] = debug_mode ? my_rank : 1;
     }
 
+    /*GPU mode: MPI works on device mirrors; in host mode the mirrors are the host buffers*/
+    int *send_dev = (int*)data_mirror(send_buf, msg_size);
+    int *recv_dev = (int*)data_mirror(recv_buf, (size_t)measure_granularity*msg_size);
+
     /*print basic info to stdout*/
     if(my_rank==master_rank){
         if(endless){
@@ -95,7 +102,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Ireduce(send_buf,&recv_buf[(size_t)i*msg_size_ints],msg_size_ints,MPI_INT,MPI_SUM,master_rank,MPI_COMM_WORLD,&requests[i]);
+                    MPI_Ireduce(send_dev,&recv_dev[(size_t)i*msg_size_ints],msg_size_ints,MPI_INT,MPI_SUM,master_rank,MPI_COMM_WORLD,&requests[i]);
                 }
                 MPI_Waitall(measure_granularity,requests,MPI_STATUSES_IGNORE);
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);
@@ -117,6 +124,7 @@ int main(int argc, char** argv){
     }while(endless);
 
     if (debug_mode) {
+        data_fetch(recv_buf, recv_dev, (size_t)measure_granularity*msg_size);
         int _e = w_size * (w_size - 1) / 2, _ok = 1, _b;
         if (my_rank == master_rank)
             for (_b = 0; _b < msg_size_ints && _ok; _b++)
@@ -135,6 +143,8 @@ done:
     free(durations);
     free(send_buf);
     free(recv_buf);
+    data_free(send_dev);
+    data_free(recv_dev);
     free(requests);
 
     /*exit MPI library*/

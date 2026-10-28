@@ -92,6 +92,19 @@ void        random_pairs(int *a, int n);
 void        offset_pairs(int *a, int n, int o);
 void       *malloc_align(size_t size);
 
+/* ── GPU mode (src/gpu_mode.c) ───────────────────────────────────────────── */
+extern int use_gpu;                       /* set by -gpu; cleared again for Buffer-less executables */
+extern int benchmark_has_data_buffers;    /* weak default 1; Buffer-less executables define 0        */
+extern int benchmark_uses_rma;            /* weak default 0; incast_get / incast_put define 1        */
+extern int benchmark_uses_nb_reduce;      /* weak default 0; the MPI_I{allreduce,reduce,reduce_scatter} benchmarks define 1 */
+void  gpu_setup(void);                    /* called at the end of parse_common_args                 */
+void  gpu_tool_args(int argc, char **argv); /* Tools that ignore their arguments: honour -gpu only   */
+void *data_mirror(void *host, size_t n);                    /* host ptr in Host mode, else device copy of host[0..n) */
+void  data_push(void *mirror, const void *host, size_t n);  /* host -> mirror (no-op in Host mode)   */
+void  data_fetch(void *host, const void *mirror, size_t n); /* mirror -> host (no-op in Host mode)   */
+void  data_free(void *mirror);                              /* no-op in Host mode                    */
+void  data_copy(void *dst, const void *src, size_t n);      /* memcpy on mirrors (device-to-device in GPU mode) */
+
 #ifdef __cplusplus
 }
 #endif

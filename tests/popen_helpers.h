@@ -35,6 +35,9 @@ inline std::string mpiexec()    { return env_or("BLINK_MPIEXEC",    BLINK_MPIEXE
 inline std::string nproc_flag() { return env_or("BLINK_NPROC_FLAG", BLINK_NPROC_FLAG); }
 inline std::string bin_dir()    { return env_or("BLINK_BIN_DIR",    BLINK_BIN_DIR);    }
 
+/* true when the suite should run every benchmark in GPU mode (-gpu appended). */
+inline bool gpu_mode() { return env_or("BLINK_TEST_GPU", "0") == "1"; }
+
 /* A single parsed DEBUG line: rank => key/value map. */
 using DebugFields = std::map<std::string, std::string>;
 using DebugMap    = std::map<int, DebugFields>;
@@ -95,7 +98,7 @@ inline DebugRun run_debug_capture(const std::string& binary,
     r.command = mpiexec() + " " + nproc_flag() + " "
               + std::to_string(nprocs) + " "
               + bin_dir() + "/" + binary
-              + " -debug -iter 1 -warmup 0 " + extra
+              + " -debug -iter 1 -warmup 0 " + (gpu_mode() ? "-gpu " : "") + extra
               + " 2>" + errfile;
 
     FILE *pipe = popen(r.command.c_str(), "r");
@@ -110,7 +113,11 @@ inline DebugRun run_debug_capture(const std::string& binary,
         r.stdout_raw += line;
         DebugFields fields;
         int rank = parse_debug_line(line, fields);
-        if (rank >= 0) r.ranks[rank] = std::move(fields);
+        if (rank >= 0) {
+            /* merge: a rank may print several DEBUG lines (e.g. the -gpu runtime's own) */
+            auto &dst = r.ranks[rank];
+            for (auto &kv : fields) dst[kv.first] = kv.second;
+        }
     }
     int status = pclose(pipe);
     if (status == -1) {
@@ -142,6 +149,21 @@ inline DebugRun run_debug_capture(const std::string& binary,
     return r;
 }
 
+/* GPU twin only: true when `binary` aborts under -gpu with the runtime's explicit "not supported by this
+ * MPI" message (one-sided or nonblocking reductions on device memory).  Cached per binary. */
+inline bool gpu_unsupported(const std::string& binary)
+{
+    if (!gpu_mode()) return false;
+    static std::map<std::string, bool> cache;
+    auto it = cache.find(binary);
+    if (it != cache.end()) return it->second;
+    DebugRun r = run_debug_capture(binary, 2);
+    bool unsupported = !(r.normal_exit && r.exit_code == 0)
+                    && r.stderr_raw.find("not supported by this MPI") != std::string::npos;
+    cache[binary] = unsupported;
+    return unsupported;
+}
+
 /* Convenience: assert the benchmark ran successfully and return its parsed
  * DEBUG lines.  On failure, dump captured stderr / stdout to gtest output. */
 inline DebugMap run_debug(const std::string& binary,
@@ -158,6 +180,21 @@ inline DebugMap run_debug(const std::string& binary,
         << "command: " << r.command << "\n"
         << "stderr:\n" << r.stderr_raw << "\n"
         << "stdout:\n" << r.stdout_raw;
+    /* In GPU mode every rank must report gpu=1 (unless the executable said -gpu has no effect: Buffer-less) and
+     * must have handed device mirrors to MPI; mirrors=0 means the benchmark ignored -gpu (not ported). */
+    if (gpu_mode()) {
+        bool bufferless = r.stderr_raw.find("has no effect") != std::string::npos;
+        for (const auto& [rk, fields] : r.ranks) {
+            auto g = fields.find("gpu");
+            if (bufferless) continue;
+            EXPECT_TRUE(g != fields.end() && g->second == "1")
+                << binary << " rank " << rk << ": -gpu given but the rank did not report gpu=1";
+            if (g == fields.end() || g->second != "1") continue;
+            auto m = fields.find("mirrors");
+            EXPECT_TRUE(m != fields.end() && m->second != "0")
+                << binary << " rank " << rk << ": -gpu but no device mirror was created (benchmark not ported?)";
+        }
+    }
     return r.ranks;
 }
 
