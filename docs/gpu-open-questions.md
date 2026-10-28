@@ -91,14 +91,22 @@ Open MPI 4.1.6 (CUDA 12.2) + UCX 1.16, 1 node with 4 A100 (64 GB) and 2 nodes, r
 | `incast_get`, `incast_put` | work on device memory, `check=OK` (1 KB and 1 MiB, 8 ranks over 2 nodes) |
 | `allreduce_nb`, `reduce_nb`, `reduce_scatter_nb` | rejected with the explicit message |
 | Inter-node, 1 MiB: `pingpong_b` (2 ranks), `alltoall_b` (8 ranks) | `check=OK` on every rank |
+| Timing, `pingpong_b` 1 MiB, 2 nodes, 1 rank each, 200 iterations, mean of the Average column | Host 48.8 µs, `-gpu` 91.2 µs (1.9x); an earlier `-debug` run gave the same 89 to 90 µs, so it is reproducible |
 
 The MPI reports GPU support (`MPI reports GPU support: yes`); UCX was configured with CUDA and gdrcopy.
 
-Not verified on Leonardo: whether UCX creates a CUDA context on device 0 for every rank before `gpu_set_device` runs
-(the `nvidia-smi --query-compute-apps` check did not capture running processes).  Device selection itself is
+Not verified on Leonardo: whether UCX creates a CUDA context on device 0 for every rank before `gpu_set_device` runs.
+The `nvidia-smi --query-compute-apps` check was tried twice and listed no processes both times: the 4-rank
+`alltoall_b` finished (about 100 us per iteration on NVLink) before `nvidia-smi` ran.  Retry with a much larger `-iter`
+(e.g. 2000000) or the endless mode `-endl`.  Device selection itself is
 confirmed: each rank used the device it was assigned and all data checks passed.  The possible cost is a small
 extra context per rank on GPU 0, not wrong results.  Also not compared: Host vs GPU timings, and Open MPI 5 on
-Leonardo (`openmpi/5.0.9--gcc--12.2.0-cuda-12.2`) for the nonblocking reductions.
+Leonardo (`openmpi/5.0.9--gcc--12.2.0-cuda-12.2`) for the nonblocking reductions (deferred).
+
+The 1.9x GPU-vs-Host gap at 1 MiB between nodes is a property of how this MPI/UCX moves device memory (Blink only
+passes device pointers, and the timed region contains the MPI call alone), e.g. staging through the host or a NIC not
+matched to the GPU.  The cause was not investigated.  A question for the professor / cluster support: is that gap
+expected on Leonardo, and which UCX settings (`UCX_NET_DEVICES`, GPUDirect RDMA, rail choice) are recommended?
 
 ## Checks for the final Opus review (not for the professor)
 
