@@ -80,11 +80,17 @@ Open MPI 4.1.6 (CUDA 12.2) + UCX 1.16, 1 node with 4 A100 (64 GB) and 2 nodes, r
 | 4 ranks, 4 visible GPUs | `device=0..3`, no sharing warning |
 | 4 ranks, `srun --gpus-per-task=1` (each rank sees 1 GPU) | `device=0` on every rank, **no sharing warning** (PCI-id check) |
 | 8 ranks on 4 GPUs | `device=0..3,0..3`, sharing warning exactly once |
-| `incast_get`, `incast_put` | work on device memory, `check=OK` |
+| `incast_get`, `incast_put` | work on device memory, `check=OK` (1 KB and 1 MiB, 8 ranks over 2 nodes) |
 | `allreduce_nb`, `reduce_nb`, `reduce_scatter_nb` | rejected with the explicit message |
 | Inter-node, 1 MiB: `pingpong_b` (2 ranks), `alltoall_b` (8 ranks) | `check=OK` on every rank |
 
 The MPI reports GPU support (`MPI reports GPU support: yes`); UCX was configured with CUDA and gdrcopy.
+
+Not verified on Leonardo: whether UCX creates a CUDA context on device 0 for every rank before `gpu_set_device` runs
+(the `nvidia-smi --query-compute-apps` check did not capture running processes).  Device selection itself is
+confirmed: each rank used the device it was assigned and all data checks passed.  The possible cost is a small
+extra context per rank on GPU 0, not wrong results.  Also not compared: Host vs GPU timings, and Open MPI 5 on
+Leonardo (`openmpi/5.0.9--gcc--12.2.0-cuda-12.2`) for the nonblocking reductions.
 
 ## Checks for the final Opus review (not for the professor)
 
