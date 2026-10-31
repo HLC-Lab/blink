@@ -16,6 +16,8 @@ visibility (Slurm GPU binding, `CUDA_VISIBLE_DEVICES`), each rank sees one devic
   (`local_rank % ngpus`) and print one warning from rank 0 when ranks really share a physical GPU (compared by PCI
   id, so one-GPU-per-rank launcher binding does not warn). Alternative: refuse to run.
 
+**Professor's answer:** OK, the automatic mapping (wrap-around with a single warning) is fine as it is.
+
 ## 2. Where the timed region starts in GPU mode
 
 **Current assumption:** the timed loop is unchanged and measures only the MPI call (`MPI_Wtime` around it, as in
@@ -28,6 +30,9 @@ Host mode). All GPU-specific work happens outside it:
 - Is this the right flow, i.e. should timing start after the initialisation and host-to-device copy, exactly as
   Host mode starts it after the buffer fill?
 - Should the host-to-device and device-to-host copies ever be part of what we measure (they are not now)?
+
+**Professor's answer:** OK, the timed region is as described: only the MPI call is measured, the host-to-device
+and device-to-host copies stay outside it.
 
 ## 3. One-sided communication on GPU memory (`incast_get`, `incast_put`)
 
@@ -45,6 +50,8 @@ there; only the laptop's Open MPI 5.0.11 + UCX loses the data.  The probe stays 
 
 **To ask:** nothing blocking any more.  For the record: should these two stay available in GPU mode only where the probe
 passes (current behaviour), or be documented as supported only on specific MPI/UCX stacks?
+
+**Professor's answer:** not asked yet.  Leaning towards yes (available in GPU mode only where the probe passes).
 
 ## 4. Nonblocking reductions on GPU memory (`allreduce_nb`, `reduce_nb`, `reduce_scatter_nb`)
 
@@ -107,6 +114,8 @@ The 1.9x GPU-vs-Host gap at 1 MiB between nodes is a property of how this MPI/UC
 passes device pointers, and the timed region contains the MPI call alone), e.g. staging through the host or a NIC not
 matched to the GPU.  The cause was not investigated.  A question for the professor / cluster support: is that gap
 expected on Leonardo, and which UCX settings (`UCX_NET_DEVICES`, GPUDirect RDMA, rail choice) are recommended?
+
+**Professor's answer:** not asked yet; more timing tests are planned first.
 
 ## Checks for the final Opus review (not for the professor)
 

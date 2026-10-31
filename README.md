@@ -127,7 +127,7 @@ Every benchmark understands the following flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-msgsize <B>` | `1024` | Message size in bytes |
+| `-msgsize <B>` | `1024` | Message size in bytes, `0` to `2147483647` (MPI int count). Parsed strictly: `1G`, `1024.0` or a value out of range aborts with a message. For `reduce_scatter_b` / `reduce_scatter_nb` the total `ranks * msgsize / 4` ints must also stay within that limit, otherwise they abort and print the largest valid `-msgsize` for the rank count. |
 | `-iter <N>` | `1` | Number of measured iterations (after warm-up) |
 | `-warmup <N>` | `5` | Number of warm-up iterations (not recorded) |
 | `-endl` | off | Run endlessly until `SIGUSR1` |
