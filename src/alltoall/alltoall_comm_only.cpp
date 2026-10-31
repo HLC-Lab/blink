@@ -51,8 +51,8 @@ void custom_alltoall(const void* sendbuf, int sendcount, MPI_Datatype sendtype,
         MPI_Request req_recv;
         MPI_Request req_send;
 
-        MPI_Isend(sbuf + i * datatype_size * sendcount, sendcount, sendtype, i, 0, comm, &req_send);
-        MPI_Irecv(rbuf + i * datatype_size * recvcount, recvcount, recvtype, i, 0, comm, &req_recv);
+        MPI_Isend(sbuf + (size_t)i * datatype_size * sendcount, sendcount, sendtype, i, 0, comm, &req_send);
+        MPI_Irecv(rbuf + (size_t)i * datatype_size * recvcount, recvcount, recvtype, i, 0, comm, &req_recv);
         
         requests.push_back(req_send);
         requests.push_back(req_recv);

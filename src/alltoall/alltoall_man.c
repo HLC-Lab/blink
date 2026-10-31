@@ -97,11 +97,11 @@ int main(int argc, char** argv){
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
                     for(j=0;j<w_size;j++){
-                        MPI_Irecv(&recv_dev[(size_t)(i*w_size+j)*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
+                        MPI_Irecv(&recv_dev[((size_t)i*w_size+j)*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
                                     ,j,MPI_COMM_WORLD,&recv_requests[i*w_size+j]);
                     }
                     for(j=0;j<w_size;j++){
-                        MPI_Isend(&send_dev[j*msg_size],msg_size,MPI_BYTE,j
+                        MPI_Isend(&send_dev[(size_t)j*msg_size],msg_size,MPI_BYTE,j
                                     ,my_rank,MPI_COMM_WORLD,&send_requests[i*w_size+j]);
                     }
                 }

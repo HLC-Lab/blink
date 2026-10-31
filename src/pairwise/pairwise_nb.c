@@ -134,7 +134,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Irecv(&recv_dev[i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[(size_t)i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                         ,MPI_ANY_TAG,MPI_COMM_WORLD,&recv_requests[i]);
                     MPI_Isend(send_dev,msg_size,MPI_BYTE,targets[my_rank]
                         ,my_rank,MPI_COMM_WORLD,&send_requests[i]);

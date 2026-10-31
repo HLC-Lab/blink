@@ -131,9 +131,9 @@ int main(int argc, char** argv){
                 antideadlock_tag=0; /* reset per timed window so the tag never grows unbounded (stays < MPI_TAG_UB on long/endless runs) */
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Irecv(&recv_dev[2*i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[(size_t)2*i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                             ,antideadlock_tag, MPI_COMM_WORLD,&recv_requests[2*i]);
-                    MPI_Irecv(&recv_dev[(2*i+1)*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[((size_t)2*i+1)*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                             ,antideadlock_tag, MPI_COMM_WORLD,&recv_requests[2*i+1]);
                     MPI_Isend(send_dev,msg_size,MPI_BYTE,left_neighbor
                             ,antideadlock_tag,MPI_COMM_WORLD, &send_requests[2*i]);

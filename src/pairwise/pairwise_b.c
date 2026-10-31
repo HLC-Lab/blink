@@ -131,7 +131,7 @@ int main(int argc, char** argv){
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
                     MPI_Sendrecv(send_dev,msg_size,MPI_BYTE,targets[my_rank],my_rank,
-                                 &recv_dev[i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE,MPI_ANY_TAG,
+                                 &recv_dev[(size_t)i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE,MPI_ANY_TAG,
                                  MPI_COMM_WORLD,MPI_STATUS_IGNORE);
                 }
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);

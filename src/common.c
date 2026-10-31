@@ -622,7 +622,7 @@ void write_results(void)
             int j;
             duration_sum = 0;
             for (j = 0; j < w_size; j++) {
-                sorting_buf[j] = all_data[j*num_samples + i];
+                sorting_buf[j] = all_data[(size_t)j*num_samples + i];
                 duration_sum  += sorting_buf[j];
             }
 
