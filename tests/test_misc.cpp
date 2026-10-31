@@ -245,6 +245,70 @@ TEST(CliGuards, MissingFlagValueAbortsCleanly)
         << "expected a 'Missing value' diagnostic on stderr.\nstderr:\n" << r.stderr_raw;
 }
 
+/*
+ * Integer flags are parsed strictly (parse_int_arg), not with atoi: a negative,
+ * out-of-int-range, suffixed or non-numeric -msgsize must abort with one
+ * diagnostic naming the flag and the value, instead of silently becoming
+ * INT_MIN, 1 or 0.  The parser aborts before any buffer is allocated.
+ */
+TEST(CliGuards, BadMsgsizeAbortsWithOneDiagnostic)
+{
+    for (const char *bad : {"-4", "2147483648", "1G", "abc"}) {
+        DebugRun r = run_debug_capture("pingpong_b", 2, std::string("-msgsize ") + bad);
+        EXPECT_FALSE(r.normal_exit && r.exit_code == 0)
+            << "-msgsize " << bad << " should abort, but the run exited 0.\n"
+            << "stdout:\n" << r.stdout_raw;
+        EXPECT_EQ(count_lines_containing(r.stderr_raw, "-msgsize must be an integer"), 1)
+            << "expected exactly one -msgsize diagnostic for '" << bad << "'.\n"
+            << "stderr:\n" << r.stderr_raw;
+        EXPECT_NE(r.stderr_raw.find(std::string("got '") + bad + "'"), std::string::npos)
+            << "diagnostic should quote the bad value '" << bad << "'.\nstderr:\n" << r.stderr_raw;
+    }
+}
+
+/* The per-benchmark parsers use the same helper (-k of kpartners_nb here). */
+TEST(CliGuards, BadBenchmarkFlagAbortsWithOneDiagnostic)
+{
+    DebugRun r = run_debug_capture("kpartners_nb", 2, "-k x");
+    EXPECT_FALSE(r.normal_exit && r.exit_code == 0)
+        << "-k x should abort, but the run exited 0.\nstdout:\n" << r.stdout_raw;
+    EXPECT_EQ(count_lines_containing(r.stderr_raw, "-k must be an integer"), 1)
+        << "expected exactly one -k diagnostic.\nstderr:\n" << r.stderr_raw;
+}
+
+/*
+ * INT_MAX is a valid -msgsize as far as the parser is concerned.  Pair it with
+ * an out-of-range -mrank so the run still aborts before allocating anything:
+ * the only diagnostic must be the -mrank one, never a -msgsize one.
+ */
+TEST(CliGuards, IntMaxMsgsizeIsAcceptedByParser)
+{
+    DebugRun r = run_debug_capture("pingpong_b", 2, "-msgsize 2147483647 -mrank 99");
+    EXPECT_NE(r.stderr_raw.find("mrank must be in"), std::string::npos)
+        << "expected the -mrank diagnostic.\nstderr:\n" << r.stderr_raw;
+    EXPECT_EQ(r.stderr_raw.find("-msgsize must be"), std::string::npos)
+        << "-msgsize 2147483647 should pass the parser.\nstderr:\n" << r.stderr_raw;
+}
+
+/*
+ * reduce_scatter takes int counts: 8 ranks x 2^28 ints = 2^31 > INT_MAX.  The
+ * guard runs before any allocation, so this is cheap (it would otherwise try
+ * to allocate 8 GiB per rank).
+ */
+TEST(CliGuards, ReduceScatterTotalCountOverIntMaxAborts)
+{
+    for (const char *bin : {"reduce_scatter_b", "reduce_scatter_nb"}) {
+        DebugRun r = run_debug_capture(bin, 8, "-msgsize 1073741824");
+        EXPECT_FALSE(r.normal_exit && r.exit_code == 0)
+            << bin << " with a >INT_MAX total count should abort, but exited 0.\n"
+            << "stdout:\n" << r.stdout_raw;
+        EXPECT_NE(r.stderr_raw.find("exceeds MPI's int limit"), std::string::npos)
+            << bin << ": expected the int-limit diagnostic.\nstderr:\n" << r.stderr_raw;
+        EXPECT_NE(r.stderr_raw.find("-msgsize <= 1073741820"), std::string::npos)
+            << bin << ": diagnostic should give the largest valid -msgsize.\nstderr:\n" << r.stderr_raw;
+    }
+}
+
 /* ── -plot distribution histogram ───────────────────────────────────────────── */
 
 TEST(Plot, RendersHistogramAdditively)
