@@ -7,6 +7,8 @@
  * faster to build, this gives accurate gcov coverage: a single .gcda for the
  * shared code instead of per-TU copies that gcov cannot merge.
  */
+#include <errno.h>
+#include <limits.h>
 #include "common.h"
 
 /* ── globals ─────────────────────────────────────────────────────────────── */
@@ -237,6 +239,30 @@ void print_help(const char *progname)
     fflush(stdout);
 }
 
+/* Parse an integer flag value strictly: the whole string must be a decimal
+ * integer within [min, max].  Unlike atoi, "1G", "1024.0", "" or a value that
+ * overflows are rejected instead of silently becoming 1, 1024 or INT_MIN.
+ * Aborts with a message naming the flag and the offending value; rank 0 prints
+ * (not master_rank, which -mrank itself may still have to validate).         */
+int parse_int_arg(const char *flag, const char *value, long min, long max)
+{
+    char *end = NULL;
+    long v = 0;
+    int ok = (value != NULL && *value != '\0');
+    if (ok) {
+        errno = 0;
+        v = strtol(value, &end, 10);
+        ok = (end != value && *end == '\0' && errno != ERANGE && v >= min && v <= max);
+    }
+    if (!ok) {
+        if (my_rank == 0)
+            fprintf(stderr, "%s must be an integer in [%ld, %ld], got '%s'\n",
+                    flag, min, max, value ? value : "");
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+    return (int)v;
+}
+
 /* Wrap parse_duration with diagnostics + validation for CLI args that accept
  * a duration.  A bare number is seconds; suffixes s/ms/us/ns are recognised.
  * Aborts with a clear message on malformed input or negative value (0 is OK
@@ -290,12 +316,12 @@ int parse_common_args(int argc, char **argv)
             MPI_Finalize();
             exit(0);
         }
-        else if (strcmp(argv[i], "-mrank")        == 0) { master_rank         = atoi(arg_value(argc, argv, &i)); }
+        else if (strcmp(argv[i], "-mrank")        == 0) { master_rank         = parse_int_arg("-mrank", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
         else if (strcmp(argv[i], "-mrand")        == 0) { do_rand_master      = 1;               }
-        else if (strcmp(argv[i], "-msgsize")      == 0) { msg_size            = atoi(arg_value(argc, argv, &i)); }
+        else if (strcmp(argv[i], "-msgsize")      == 0) { msg_size            = parse_int_arg("-msgsize", arg_value(argc, argv, &i), 0, INT_MAX); }
         else if (strcmp(argv[i], "-endl")         == 0) { endless             = 1;               }
-        else if (strcmp(argv[i], "-iter")         == 0) { max_iters           = atoi(arg_value(argc, argv, &i)); }
-        else if (strcmp(argv[i], "-warmup")       == 0) { warm_up_iters       = atoi(arg_value(argc, argv, &i)); }
+        else if (strcmp(argv[i], "-iter")         == 0) { max_iters           = parse_int_arg("-iter", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
+        else if (strcmp(argv[i], "-warmup")       == 0) { warm_up_iters       = parse_int_arg("-warmup", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
         else if (strcmp(argv[i], "-blength")      == 0) { burst_length        = parse_duration_arg("-blength", arg_value(argc, argv, &i)); }
         else if (strcmp(argv[i], "-bpause")       == 0) { burst_pause         = parse_duration_arg("-bpause",  arg_value(argc, argv, &i)); }
         else if (strcmp(argv[i], "-bldist")       == 0) { strncpy(burst_dist, arg_value(argc, argv, &i), 15);
@@ -306,16 +332,16 @@ int parse_common_args(int argc, char **argv)
                                                           burst_pause_rand  = 1;                  }
         else if (strcmp(argv[i], "-blshape")      == 0) { burst_shape        = atof(arg_value(argc, argv, &i)); }
         else if (strcmp(argv[i], "-bpshape")      == 0) { pause_shape        = atof(arg_value(argc, argv, &i)); }
-        else if (strcmp(argv[i], "-seed")         == 0) { rand_seed           = atoi(arg_value(argc, argv, &i)); }
-        else if (strcmp(argv[i], "-grty")         == 0) { measure_granularity = atoi(arg_value(argc, argv, &i)); }
-        else if (strcmp(argv[i], "-maxsamples")   == 0) { max_samples         = atoi(arg_value(argc, argv, &i)); }
+        else if (strcmp(argv[i], "-seed")         == 0) { rand_seed           = parse_int_arg("-seed", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
+        else if (strcmp(argv[i], "-grty")         == 0) { measure_granularity = parse_int_arg("-grty", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
+        else if (strcmp(argv[i], "-maxsamples")   == 0) { max_samples         = parse_int_arg("-maxsamples", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
         else if (strcmp(argv[i], "-pretty-print") == 0) { pretty_output       = 1;               }
         else if (strcmp(argv[i], "-debug")        == 0) { debug_mode          = 1;               }
         else if (strcmp(argv[i], "-gpu")          == 0) { use_gpu             = 1;               }
         else if (strcmp(argv[i], "-plot")         == 0) { plot_output         = 1;               }
         else if (strcmp(argv[i], "-plotstat")     == 0) { strncpy(plot_stat, arg_value(argc, argv, &i), 15);
                                                           plot_stat[15] = '\0';                   }
-        else if (strcmp(argv[i], "-plotbins")     == 0) { plot_bins           = atoi(arg_value(argc, argv, &i)); }
+        else if (strcmp(argv[i], "-plotbins")     == 0) { plot_bins           = parse_int_arg("-plotbins", arg_value(argc, argv, &i), INT_MIN, INT_MAX); }
         else if (strcmp(argv[i], "-plotlog")      == 0) { plot_log            = 1;               }
         else if (strcmp(argv[i], "-plotbinsize")  == 0) { const char *_bs = arg_value(argc, argv, &i);
                                                           plot_bin_size = parse_duration(_bs);
@@ -330,12 +356,12 @@ int parse_common_args(int argc, char **argv)
 
     /* fail fast on nonsensical numeric parameters */
     if (max_samples < 1) {
-        if (my_rank == master_rank)
+        if (my_rank == 0)
             fprintf(stderr, "-maxsamples must be >= 1, got %d\n", max_samples);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     if (measure_granularity < 1) {
-        if (my_rank == master_rank)
+        if (my_rank == 0)
             fprintf(stderr, "-grty must be >= 1, got %d\n", measure_granularity);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }

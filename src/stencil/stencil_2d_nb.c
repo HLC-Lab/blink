@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <limits.h>
 #include "common.h"
 
 const char *benchmark_help =
@@ -33,7 +34,7 @@ int main(int argc, char** argv){
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-dimx") == 0) {
-            dimx = atoi(arg_value(argc, argv, &i));
+            dimx = parse_int_arg("-dimx", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else if (strcmp(argv[i], "-periodic") == 0) {
             periodic = true;
         } else {

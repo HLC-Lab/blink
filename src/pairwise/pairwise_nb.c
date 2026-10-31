@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <limits.h>
 #include "common.h"
 
 const char *benchmark_help =
@@ -36,7 +37,7 @@ int main(int argc, char** argv){
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-offset") == 0) {
-            target_offset = atoi(arg_value(argc, argv, &i));
+            target_offset = parse_int_arg("-offset", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else if (strcmp(argv[i], "-mode") == 0) {
             comm_mode = arg_value(argc, argv, &i);
         } else {

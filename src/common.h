@@ -72,6 +72,7 @@ int         compare_doubles(const void *p1, const void *p2);
 const char *arg_value(int argc, char **argv, int *i);
 void        validate_burst_dist(const char *what, const char *dist, double mean, double shape);
 double      parse_duration(const char *s);
+int         parse_int_arg(const char *flag, const char *value, long min, long max);
 void        print_help(const char *progname);
 int         parse_common_args(int argc, char **argv);
 double      sample_burst_length(double mean);

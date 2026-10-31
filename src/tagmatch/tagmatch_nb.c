@@ -88,7 +88,7 @@ int main(int argc, char **argv)
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ntags") == 0) {
-            ntags = atoi(arg_value(argc, argv, &i));
+            ntags = parse_int_arg("-ntags", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else if (strcmp(argv[i], "-sendorder") == 0) {
             sendorder = arg_value(argc, argv, &i);
         } else if (strcmp(argv[i], "-recvorder") == 0) {
