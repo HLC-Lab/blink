@@ -1,6 +1,7 @@
 /* Black-box tests of the -gpu runtime (src/gpu_mode.c). */
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 #include "popen_helpers.h"
 
 using blink::DebugRun;
@@ -143,6 +144,25 @@ TEST(GpuRuntime, NonblockingReductionsAreRejectedExplicitlyOrCorrect) {
         } else {
             EXPECT_TRUE(contains(r.stderr_raw, "not supported by this MPI")) << bin << ": " << r.stderr_raw;
         }
+    }
+}
+
+/* The probe tests only the call a benchmark uses, so a rejection names that call and not the other two (on Open MPI
+ * 4.1.6 + UCC, Iallreduce and Ireduce work and Ireduce_scatter does not: one stack, three different outcomes). */
+TEST(GpuRuntime, NonblockingReductionProbeNamesOnlyTheBenchmarksOwnCall) {
+    struct Case { const char *bin, *own; std::vector<const char *> others; const char *hint; };
+    const Case cases[] = {
+        {"allreduce_nb",      "MPI_Iallreduce",      {"MPI_Ireduce", "MPI_Ireduce_scatter"}, "OMPI_MCA_coll_ucc_enable"},
+        {"reduce_nb",         "MPI_Ireduce",         {"MPI_Iallreduce", "MPI_Ireduce_scatter"}, "OMPI_MCA_coll_ucc_enable"},
+        {"reduce_scatter_nb", "MPI_Ireduce_scatter", {"MPI_Iallreduce"}, "does not implement it either"},
+    };
+    for (const Case &c : cases) {
+        DebugRun r = run_debug_capture(c.bin, 4, "-gpu");
+        if (r.normal_exit && r.exit_code == 0) continue;   /* works on this MPI: nothing to check */
+        EXPECT_TRUE(contains(r.stderr_raw, c.own)) << c.bin << ": " << r.stderr_raw;
+        for (const char *other : c.others)
+            EXPECT_FALSE(contains(r.stderr_raw, other)) << c.bin << " names " << other << ": " << r.stderr_raw;
+        EXPECT_TRUE(contains(r.stderr_raw, c.hint)) << c.bin << ": " << r.stderr_raw;
     }
 }
 #elif !BLINK_GPU_BUILD

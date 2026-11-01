@@ -138,8 +138,9 @@ static void crash_guard_off(void)
 }
 
 /* Nonblocking reductions: some MPIs (Open MPI's libnbc) apply the reduction operator on the CPU and
- * crash on device pointers.  Probe every operation the nonblocking-reduction benchmarks use. */
-static int probe_nb_reduce(void)
+ * crash on device pointers.  Probe the calls named in `ops` (NB_REDUCE_* bits): not every call fails on the same
+ * stack (Open MPI 4.1.6 + UCC on Leonardo: Iallreduce and Ireduce work, Ireduce_scatter does not). */
+static int probe_nb_reduce(int ops)
 {
     enum { N = 16 };
     int want = w_size;   /* MAX over my_rank + 1 */
@@ -158,33 +159,55 @@ static int probe_nb_reduce(void)
     for (i = 0; i < w_size; i++) { h[i] = my_rank + 1; recvcounts[i] = 1; }
     gpu_memcpy_h2d(drs_in, h, (size_t)w_size * sizeof(int));
 
-    /* MPI_Iallreduce */
-    gpu_memset(dr, 0, sizeof r);
-    MPI_Iallreduce(ds, dr, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
-    MPI_Wait(&req, MPI_STATUS_IGNORE);
-    gpu_memcpy_d2h(r, dr, sizeof r);
-    for (i = 0; i < N; i++) if (r[i] != want) ok = 0;
-
-    /* MPI_Ireduce (result on rank 0) */
-    gpu_memset(dr, 0, sizeof r);
-    MPI_Ireduce(ds, dr, N, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, &req);
-    MPI_Wait(&req, MPI_STATUS_IGNORE);
-    if (my_rank == 0) {
+    if (ops & NB_REDUCE_ALLREDUCE) {   /* MPI_Iallreduce */
+        gpu_memset(dr, 0, sizeof r);
+        MPI_Iallreduce(ds, dr, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
+        MPI_Wait(&req, MPI_STATUS_IGNORE);
         gpu_memcpy_d2h(r, dr, sizeof r);
         for (i = 0; i < N; i++) if (r[i] != want) ok = 0;
     }
 
-    /* MPI_Ireduce_scatter (one element per rank) */
-    gpu_memset(drs_out, 0, sizeof(int));
-    MPI_Ireduce_scatter(drs_in, drs_out, recvcounts, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
-    MPI_Wait(&req, MPI_STATUS_IGNORE);
-    gpu_memcpy_d2h(&one, drs_out, sizeof one);
-    if (one != want) ok = 0;
+    if (ops & NB_REDUCE_REDUCE) {      /* MPI_Ireduce (result on rank 0) */
+        gpu_memset(dr, 0, sizeof r);
+        MPI_Ireduce(ds, dr, N, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, &req);
+        MPI_Wait(&req, MPI_STATUS_IGNORE);
+        if (my_rank == 0) {
+            gpu_memcpy_d2h(r, dr, sizeof r);
+            for (i = 0; i < N; i++) if (r[i] != want) ok = 0;
+        }
+    }
+
+    if (ops & NB_REDUCE_SCATTER) {     /* MPI_Ireduce_scatter (one element per rank) */
+        gpu_memset(drs_out, 0, sizeof(int));
+        MPI_Ireduce_scatter(drs_in, drs_out, recvcounts, MPI_INT, MPI_MAX, MPI_COMM_WORLD, &req);
+        MPI_Wait(&req, MPI_STATUS_IGNORE);
+        gpu_memcpy_d2h(&one, drs_out, sizeof one);
+        if (one != want) ok = 0;
+    }
 
     free(h); free(recvcounts);
     gpu_free(ds); gpu_free(dr); gpu_free(drs_in); gpu_free(drs_out);
     MPI_Allreduce(&ok, &all, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
     return all;
+}
+
+/* Names of the nonblocking reduction calls a benchmark uses, for the probe messages. */
+static void nb_reduce_names(int ops, char *buf, size_t n)
+{
+    buf[0] = '\0';
+    if (ops & NB_REDUCE_ALLREDUCE) snprintf(buf + strlen(buf), n - strlen(buf), "%sMPI_Iallreduce",     buf[0] ? "/" : "");
+    if (ops & NB_REDUCE_REDUCE)    snprintf(buf + strlen(buf), n - strlen(buf), "%sMPI_Ireduce",        buf[0] ? "/" : "");
+    if (ops & NB_REDUCE_SCATTER)   snprintf(buf + strlen(buf), n - strlen(buf), "%sMPI_Ireduce_scatter", buf[0] ? "/" : "");
+}
+
+/* What to try after a failed nonblocking-reduction probe.  Only what was checked: Leonardo, Open MPI 4.1.6 with the
+ * UCC 1.3.0 of HPC-X 2.18.1 (Iallreduce and Ireduce work with UCC enabled, both reduce-scatter calls crash in libnbc). */
+static const char *nb_reduce_hint(int ops)
+{
+    if (ops & NB_REDUCE_SCATTER)
+        return "Open MPI's UCC component does not implement it either (checked with Open MPI 4.1.6, UCC 1.3.0)";
+    return "with Open MPI and UCC try OMPI_MCA_coll_ucc_enable=1 OMPI_MCA_coll_ucc_priority=100 "
+           "(this call worked that way with Open MPI 4.1.6, UCC 1.3.0)";
 }
 
 void gpu_setup(void)
@@ -278,15 +301,19 @@ void gpu_setup(void)
     }
 
     if (benchmark_uses_nb_reduce) {
+        char names[96], msg[480];
+        nb_reduce_names(benchmark_uses_nb_reduce, names, sizeof names);
         if (my_rank == 0)
-            fprintf(stderr, "probing nonblocking reductions on device memory...\n");
-        crash_guard_on("nonblocking reductions (MPI_Iallreduce/Ireduce/Ireduce_scatter) on GPU memory are "
-                       "not supported by this MPI: it crashed while reducing device buffers\n");
-        int nbr_ok = probe_nb_reduce();
+            fprintf(stderr, "probing %s on device memory...\n", names);
+        snprintf(msg, sizeof msg, "nonblocking reduction %s on GPU memory is not supported by this MPI: "
+                 "it crashed while reducing device buffers; %s\n", names, nb_reduce_hint(benchmark_uses_nb_reduce));
+        crash_guard_on(msg);
+        int nbr_ok = probe_nb_reduce(benchmark_uses_nb_reduce);
         crash_guard_off();
         if (!nbr_ok) {
             if (my_rank == 0)
-                fprintf(stderr, "nonblocking reductions on GPU memory are not supported by this MPI: wrong result\n");
+                fprintf(stderr, "nonblocking reduction %s on GPU memory is not supported by this MPI: wrong result; %s\n",
+                        names, nb_reduce_hint(benchmark_uses_nb_reduce));
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
     }

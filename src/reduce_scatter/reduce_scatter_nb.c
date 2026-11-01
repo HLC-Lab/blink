@@ -11,8 +11,8 @@
 #include <sched.h>
 #include "common.h"
 
-/* Nonblocking reduction: -gpu additionally probes MPI_Iallreduce/Ireduce/Ireduce_scatter on device memory. */
-int benchmark_uses_nb_reduce = 1;
+/* Nonblocking reduction: -gpu additionally probes MPI_Ireduce_scatter on device memory. */
+int benchmark_uses_nb_reduce = NB_REDUCE_SCATTER;
 
 int main(int argc, char** argv){
 
