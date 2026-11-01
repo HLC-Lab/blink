@@ -69,7 +69,9 @@ version or machine.
 
 **To ask:** is it acceptable that the three `_nb` reduction benchmarks are unavailable in GPU mode (they work in Host
 mode, and the blocking `allreduce_b`/`reduce_b`/`reduce_scatter_b` work in GPU mode), or should they get a different
-path (e.g. UCC, or another Open MPI version)?
+path (e.g. UCC, or another Open MPI version)?  Update (2026-11-01, see "Nonblocking reductions on device memory,
+Leonardo diagnosis"): with UCC enabled, `allreduce_nb` and `reduce_nb` work on device memory on Leonardo, and only
+`reduce_scatter_nb` stays unavailable.
 
 ## TODO
 
@@ -146,10 +148,66 @@ under `nvhpc-25.11` (`comm_libs/13.0`), while the loaded CUDA is 12.2.  Left as 
 - Within a node, GPU buffers are much faster than host buffers (724 us vs 8726 us at 64 MiB, NVLink vs shared memory).
 - So the gap is how this UCX moves GPU memory, not Blink: the timed region contains only the MPI call.
 
-A question for the professor / cluster support: is a single lane for GPU memory the expected behaviour on Leonardo with
-this UCX, and is there a setting (or a newer HPC-X) that lets GPU buffers use more than one NIC?
+**Several pairs at once: the single lane is per GPU, and the node total is the same (2026-11-01, Open MPI 4.1.6 + UCX
+1.16, 2 nodes, 1 to 4 `pingpong_b` pairs running at the same time, GPU *k* on one node with GPU *k* on the other,
+64 MiB, one-way, mean of the Average column, 400 iterations).**
 
-**Professor's answer:** not asked yet; more timing tests are planned first.
+| Pairs at once | Host, total | GPU, total |
+|---|---|---|
+| 1 | 24.6 GB/s | 12.3 GB/s |
+| 2 | 48.8 GB/s | 24.6 GB/s |
+| 4 | 43.8 GB/s (11.0 per pair) | 49.3 GB/s (12.3 per pair) |
+
+- GPU bandwidth adds up over the pairs: every GPU uses its own near NIC (about one HDR100, 12.3 GB/s) and the pairs do
+  not slow each other down.  With four pairs the GPU path moves more in total than host buffers.
+- Host buffers win with one pair only because the other NICs are idle.  With four pairs the same four NICs are shared
+  (11.0 GB/s per pair).
+- `UCX_PROTO_INFO=y` shows the choice: for a send from `cuda/GPU0`, messages above about 960 KB use a rendezvous read
+  over `rc_mlx5/mlx5_0:1` only.  From host memory, above 256 KB, the rendezvous is split 50% on `mlx5_0:1` and 50% on
+  `mlx5_1:1`.
+- So the 1.9x gap in the tables above is the case of one GPU pair talking alone.  A node that uses all its GPUs gets
+  the full NIC bandwidth.  Not verified: why UCX does not stripe GPU memory over several NICs when only one pair is
+  active (likely because GPUDirect RDMA is only used through the NIC next to the GPU).
+
+A question for the professor / cluster support, now much smaller: is a single lane per GPU buffer the expected
+behaviour with this UCX?
+
+**Professor's answer:** not asked yet.  The multi-pair result above explains the gap, so the question may no longer be
+needed.
+
+### Nonblocking reductions on device memory, Leonardo diagnosis (2026-11-01)
+
+Open MPI 4.1.6 (`openmpi/4.1.6--gcc--12.2.0-cuda-12.2`), UCC 1.3.0 from HPC-X 2.18.1 (built with CUDA), 1 node, 4 ranks
+on 4 GPUs.  A 40-line C test calls the MPI function on `cudaMalloc`ed buffers (16 ints, `MPI_MAX`), with
+`UCX_HANDLE_ERRORS=bt` for a backtrace on a crash.
+
+| Call on device memory | Defaults | `OMPI_MCA_coll_ucc_enable=1`, priority 100 |
+|---|---|---|
+| `MPI_Allreduce` (blocking) | works | works |
+| `MPI_Iallreduce` | crashes | **works**, result correct |
+| `MPI_Ireduce` | crashes | **works**, result correct |
+| `MPI_Ireduce_scatter` (per-rank counts, what `reduce_scatter_nb` uses) | crashes | crashes |
+| `MPI_Ireduce_scatter_block` | crashes | crashes |
+
+- **Why it crashes:** the backtrace is `NBC_Start_round` / `NBC_Progress` in `mca_coll_libnbc.so`, then `mca_op_avx.so`:
+  libnbc applies the reduction operator on the CPU to the device address.  It is not a Blink problem.
+- **UCC engaged:** with `coll_ucc_verbose=9` the log shows `mca_coll_ucc_iallreduce()` and `mca_coll_ucc_ireduce()` and
+  never a reduce-scatter call.  This Open MPI's UCC component implements `Iallreduce` and `Ireduce` but not the two
+  reduce-scatter variants, so those fall back to libnbc.
+- **Blocking reductions** work because of the `cuda` component (priority 78): with `OMPI_MCA_coll=^cuda,hcoll` (and
+  also `^cuda,hcoll,ucc`) the blocking `allreduce_b -gpu` crashes in the probe.  `hcoll` is switched off by the module
+  (`coll_hcoll_enable=0` from the environment) and UCC is off by default (`coll_ucc_enable=0`), so neither takes part
+  by default.  `OMPI_MCA_coll_cuda_disable_cuda_coll=1` did not stop it from working, so that parameter does not
+  switch the handling off as its name suggests (not investigated).
+- **What it means for Blink:** `allreduce_nb` and `reduce_nb` can work in GPU mode on Leonardo with
+  `OMPI_MCA_coll_ucc_enable=1 OMPI_MCA_coll_ucc_priority=100`; `reduce_scatter_nb` cannot with this MPI.  Today the
+  startup probe checked all three calls for every `_nb` benchmark, so with UCC enabled `allreduce_nb` and `reduce_nb`
+  were still rejected because of `Ireduce_scatter`.  **Fixed:** each benchmark now probes only the call it uses
+  (`benchmark_uses_nb_reduce` is a bit mask, `NB_REDUCE_*` in `src/common.h`), and the rejection names that call and
+  carries a hint.  Checked through Blink on Leonardo (1 node and 2 nodes, `-gpu -debug`, 1 MiB): with UCC enabled
+  `allreduce_nb` and `reduce_nb` run with `check=OK` on every rank, `reduce_scatter_nb` is rejected; without UCC all
+  three are rejected by name.
+- **Not tried:** `hcoll` enabled (the module disables it on purpose), and UCC with larger messages or several nodes.
 
 ## Checks for the final Opus review (not for the professor)
 
