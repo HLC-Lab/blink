@@ -255,9 +255,13 @@ int parse_int_arg(const char *flag, const char *value, long min, long max)
         ok = (end != value && *end == '\0' && errno != ERANGE && v >= min && v <= max);
     }
     if (!ok) {
-        if (my_rank == 0)
-            fprintf(stderr, "%s must be an integer in [%ld, %ld], got '%s'\n",
-                    flag, min, max, value ? value : "");
+        if (my_rank == 0) {
+            if (min <= INT_MIN && max >= INT_MAX)
+                fprintf(stderr, "%s must be an integer, got '%s'\n", flag, value ? value : "");
+            else
+                fprintf(stderr, "%s must be an integer in [%ld, %ld], got '%s'\n",
+                        flag, min, max, value ? value : "");
+        }
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
     return (int)v;
