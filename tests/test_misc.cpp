@@ -298,6 +298,8 @@ TEST(CliGuards, IntMaxMsgsizeIsAcceptedByParser)
 TEST(CliGuards, ReduceScatterTotalCountOverIntMaxAborts)
 {
     for (const char *bin : {"reduce_scatter_b", "reduce_scatter_nb"}) {
+        /* GPU twin: where the MPI cannot reduce device memory the startup probe aborts before this guard runs. */
+        if (blink::gpu_unsupported(bin)) continue;
         DebugRun r = run_debug_capture(bin, 8, "-msgsize 1073741824");
         EXPECT_FALSE(r.normal_exit && r.exit_code == 0)
             << bin << " with a >INT_MAX total count should abort, but exited 0.\n"
