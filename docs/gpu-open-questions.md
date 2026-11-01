@@ -71,6 +71,7 @@ path (e.g. UCC, or another Open MPI version)?
   runtime headers/`libcudart` (e.g. `nvidia-cuda-toolkit` replaced by the smaller `cuda-cudart-dev` from NVIDIA's
   repo), cache the apt packages, and run the GPU compile jobs only when `src/`, `CMakeLists.txt` or `.github/` change
   (a `paths:` filter).  Not started.
+  Change implemented on branch `ci-gpu-light` (new `.github/workflows/gpu-build.yml`); pending a CI run.
 
 ## Known limitations (not for the professor)
 

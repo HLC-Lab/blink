@@ -1,0 +1,75 @@
+name: GPU build
+
+# Compile-only checks of the -gpu mode (hosted runners have no GPU, so nothing is executed).
+# Kept out of ci.yml so that the `paths:` filter does not also skip the CPU test job: a docs-only
+# commit does not trigger this workflow.
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - '.github/workflows/gpu-build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - '.github/workflows/gpu-build.yml'
+
+# Cancel an in-progress run if a newer commit is pushed to the same ref.
+concurrency:
+  group: gpu-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-cuda:
+    name: compile-only (CUDA)
+    # Pinned (not ubuntu-latest) because the NVIDIA apt repo URL below names the Ubuntu release.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the CUDA runtime headers and libcudart (a few MB of packages) instead of the multi-GB
+      # `nvidia-cuda-toolkit`: src/gpu.c is plain C and src/CMakeLists.txt links only CUDA::cudart.
+      # FindCUDAToolkit does not locate the toolkit from the runtime package alone (first run:
+      # "no CUDA toolkit was found"), so `cuda-nvcc-12-9` (about 40 MB) is installed too.
+      - name: Install toolchain (CMake, OpenMPI, CUDA runtime from NVIDIA repo)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential openmpi-bin libopenmpi-dev wget ca-certificates
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-cudart-dev-12-9 cuda-nvcc-12-9
+
+      - name: Configure
+        run: cmake -B build -DBLINK_GPU=CUDA -DBLINK_TESTS=OFF -DCUDAToolkit_ROOT=/usr/local/cuda-12.9
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+  # Best-effort: validates the HIP code path (src/gpu.c mapping) against the ROCm headers.
+  # Not blocking, because the package set on the hosted image may change; fix the package
+  # list from the log of the first run.
+  build-hip:
+    name: compile-only (HIP, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (CMake, OpenMPI, HIP runtime)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential openmpi-bin libopenmpi-dev hipcc libamdhip64-dev
+
+      - name: Configure
+        run: cmake -B build -DBLINK_GPU=HIP -DBLINK_TESTS=OFF -DCMAKE_PREFIX_PATH=/usr:/opt/rocm
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
