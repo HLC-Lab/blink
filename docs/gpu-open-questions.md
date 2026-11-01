@@ -73,12 +73,12 @@ path (e.g. UCC, or another Open MPI version)?
 
 ## TODO
 
-- **Lighter CI.**  The `compile-only (CUDA)` job installs the whole `nvidia-cuda-toolkit` apt package (several GB; it
-  took about 2 minutes on one run and over 15 on another, on a docs-only commit).  Options: install only the CUDA
-  runtime headers/`libcudart` (e.g. `nvidia-cuda-toolkit` replaced by the smaller `cuda-cudart-dev` from NVIDIA's
-  repo), cache the apt packages, and run the GPU compile jobs only when `src/`, `CMakeLists.txt` or `.github/` change
-  (a `paths:` filter).  Not started.
-  Change implemented on branch `ci-gpu-light` (new `.github/workflows/gpu-build.yml`); pending a CI run.
+- **Lighter CI (done, 2026-11-01).**  The `compile-only (CUDA)` job used to install the whole `nvidia-cuda-toolkit`
+  apt package (several GB; about 2 minutes on one run, over 15 on another).  The GPU compile jobs now live in
+  `.github/workflows/gpu-build.yml`, which only runs when `src/`, `CMakeLists.txt`, `CMakePresets.json` or the workflow
+  itself change, and the CUDA job installs `cuda-cudart-dev-12-9` plus `cuda-nvcc-12-9` from NVIDIA's apt repo (about
+  40 MB).  `nvcc` is needed: with the runtime package alone, `FindCUDAToolkit` reports no toolkit.  The whole job takes
+  about 50 seconds.
 
 ## Known limitations (not for the professor)
 
