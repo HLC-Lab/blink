@@ -105,18 +105,49 @@ Open MPI 4.1.6 (CUDA 12.2) + UCX 1.16, 1 node with 4 A100 (64 GB) and 2 nodes, r
 
 The MPI reports GPU support (`MPI reports GPU support: yes`); UCX was configured with CUDA and gdrcopy.
 
-Not verified on Leonardo: whether UCX creates a CUDA context on device 0 for every rank before `gpu_set_device` runs.
-The `nvidia-smi --query-compute-apps` check was tried twice and listed no processes both times: the 4-rank
-`alltoall_b` finished (about 100 us per iteration on NVLink) before `nvidia-smi` ran.  Retry with a much larger `-iter`
-(e.g. 2000000) or the endless mode `-endl`.  Device selection itself is
-confirmed: each rank used the device it was assigned and all data checks passed.  The possible cost is a small
-extra context per rank on GPU 0, not wrong results.  Also not compared: Host vs GPU timings, and Open MPI 5 on
-Leonardo (`openmpi/5.0.9--gcc--12.2.0-cuda-12.2`) for the nonblocking reductions (deferred).
+### Leonardo follow-up checks (2026-11-01)
 
-The 1.9x GPU-vs-Host gap at 1 MiB between nodes is a property of how this MPI/UCX moves device memory (Blink only
-passes device pointers, and the timed region contains the MPI call alone), e.g. staging through the host or a NIC not
-matched to the GPU.  The cause was not investigated.  A question for the professor / cluster support: is that gap
-expected on Leonardo, and which UCX settings (`UCX_NET_DEVICES`, GPUDirect RDMA, rail choice) are recommended?
+**UCX context on device 0: not a problem here.**  4 ranks of `alltoall_b -gpu -endl` on one node with all 4 GPUs
+visible: `nvidia-smi --query-compute-apps` showed exactly one process per GPU (482 MiB each) and no extra process on
+GPU 0, so UCX does not create a context on device 0 before `gpu_set_device` runs (Open MPI 4.1.6 + UCX 1.16).  No
+change needed; selecting the device before `MPI_Init` is not required on this stack.  The `--gpus-per-task=1` control
+did not run (the first step's tasks outlived the `SIGINT` used to stop them), but it could not show an extra context.
+
+**Open MPI 5.0.9 (`openmpi/5.0.9--gcc--12.2.0-cuda-12.2`): nonblocking reductions could not be tested.**  It builds
+Blink fine, but `srun` launches time out with both `--mpi=pmix` and `--mpi=pmix_v5` (`Socket timed out on send/recv
+operation`, even for a host-buffer `barrier_b`).  `mpirun` inside the allocation launches, and then every `-gpu` run
+(with and without `OMPI_MCA_coll_ucc_enable=1`) stops at Blink's own startup probe: "this MPI is not GPU-aware".  So
+the nonblocking reductions are never reached.  Possible cause, not verified: this module's UCX/UCC come from HPC-X 2.25.1
+under `nvhpc-25.11` (`comm_libs/13.0`), while the loaded CUDA is 12.2.  Left as it is: use Open MPI 4.1.6 on Leonardo.
+
+**The 1.9x GPU-vs-Host gap between nodes is a single NIC lane (Open MPI 4.1.6 + UCX 1.16, 2 nodes, 1 rank each,
+`pingpong_b`, 200 iterations, mean of the Average column, one-way).**
+
+| Message | Host, default | Host, 1 lane | GPU, default | GPU, no GPUDirect RDMA |
+|---|---|---|---|---|
+| 8 B | 0.9 us | 1.0 us | 2.8 us | 2.7 us |
+| 128 KiB | 15.1 us | 15.4 us | 15.8 us | 15.8 us |
+| 2 MiB | 93.0 us | 177.7 us | 177.7 us | 177.5 us |
+| 64 MiB | 2727 us (24.6 GB/s) | 5445 us (12.3 GB/s) | 5446 us (12.3 GB/s) | 4610 us (14.6 GB/s) |
+
+- From about 512 KiB up, host buffers reach twice the bandwidth of GPU buffers.  Pinning host buffers to one NIC
+  (`UCX_NET_DEVICES=mlx5_0:1`) or to one rendezvous lane (`UCX_MAX_RNDV_LANES=1`) gives exactly the GPU numbers, so the
+  GPU path moves data over one lane (about one HDR100 NIC, 12.3 GB/s) where host buffers use two.
+- Giving the GPU path more room changes nothing: `UCX_MAX_RNDV_LANES=4`, `UCX_NET_DEVICES=mlx5_0:1,mlx5_1:1` and all
+  four NICs all stay at 5444 us for 64 MiB.  `UCX_RNDV_SCHEME=get_zcopy` / `put_zcopy` also change nothing.
+- `UCX_IB_GPU_DIRECT_RDMA=no` (staging through the host) is faster for large GPU messages (14.6 GB/s) but not
+  two-rail either.  A NIC that is not the one next to the GPU is slower for GPU buffers (6139 us at 64 MiB with
+  `mlx5_1`), so the NIC choice matters, and the default one is the right one.
+- Small messages: GPU buffers cost about 1.9 us more than host buffers (2.8 vs 0.9 us at 8 B); from 8 KiB to 128 KiB
+  the two are within about 1 us.
+- Node topology (`nvidia-smi topo -m`): GPU *i* is `PXB` to `mlx5_i` and `NODE` to the other three NICs, so each GPU has
+  one NIC close to it.  A likely reason for the single lane, not verified: only the near NIC qualifies for GPUDirect
+  RDMA from that GPU.
+- Within a node, GPU buffers are much faster than host buffers (724 us vs 8726 us at 64 MiB, NVLink vs shared memory).
+- So the gap is how this UCX moves GPU memory, not Blink: the timed region contains only the MPI call.
+
+A question for the professor / cluster support: is a single lane for GPU memory the expected behaviour on Leonardo with
+this UCX, and is there a setting (or a newer HPC-X) that lets GPU buffers use more than one NIC?
 
 **Professor's answer:** not asked yet; more timing tests are planned first.
 
@@ -160,12 +191,10 @@ green before merging.
 
 ### Device selection vs. UCX context creation
 
-On multi-GPU nodes UCX may create its CUDA context on device 0 during `MPI_Init`, before `gpu_set_device` runs.
-Whether the device should be selected before `MPI_Init` (from the launcher's local-rank environment variable, e.g.
-`OMPI_COMM_WORLD_LOCAL_RANK` / `SLURM_LOCALID`) cannot be tested on this single-GPU machine. Check on a multi-GPU
-node, or with the professor.
+Checked on Leonardo (2026-11-01): UCX does not create an extra context on device 0 (see "Leonardo follow-up checks"
+above), so the device is not selected before `MPI_Init`.  Not tested on other stacks.
 
-Observation to include in that check: `mpirun -n 2 <bin> -gpu 2>&1 >/dev/null | head` showed rank stdout lines in the
+Observation (stderr redirection): `mpirun -n 2 <bin> -gpu 2>&1 >/dev/null | head` showed rank stdout lines in the
 pipe (the launcher's own I/O forwarding interacts with that redirection order), while `mpirun ... >out 2>err` split
 the two streams correctly. Wrappers should redirect to files (or use the launcher's own output options), not rely on
 `2>&1 >/dev/null` ordering.
