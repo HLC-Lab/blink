@@ -53,6 +53,9 @@ add_benchmark_test(test_kpartners   8)
 add_benchmark_test(test_stencil     8)
 add_benchmark_test(test_tagmatch    4)
 add_benchmark_test(test_misc        8)
+add_benchmark_test(test_large       4 NO_GPU_VARIANT)
+# test_large needs tens of GiB: every case skips unless BLINK_LARGE_TESTS=1 (see test_large.cpp).
+set_tests_properties(test_large PROPERTIES TIMEOUT 3600)
 add_benchmark_test(test_gpu         4 NO_GPU_VARIANT)
 # test_gpu drives the GPU too: serialize it with the _gpu twins.
 set_tests_properties(test_gpu PROPERTIES RESOURCE_LOCK gpu)

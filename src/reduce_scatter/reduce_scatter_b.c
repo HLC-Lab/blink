@@ -7,6 +7,7 @@
 #include <math.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <sched.h>
 #include "common.h"
 
@@ -49,6 +50,15 @@ int main(int argc, char** argv){
     }
 
     msg_size_ints=msg_size/sizeof(int);
+
+    /*MPI_Reduce_scatter takes int counts: the total element count w_size*msg_size_ints must fit in an int*/
+    if((long long)w_size*msg_size_ints>INT_MAX){
+        if(my_rank==master_rank)
+            fprintf(stderr, "Total element count (%d ranks x %d ints) exceeds MPI's int limit (%d); "
+                            "use -msgsize <= %lld for %d ranks\n",
+                    w_size,msg_size_ints,INT_MAX,(long long)(INT_MAX/w_size)*(long long)sizeof(int),w_size);
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
 
     /*each rank sends w_size*msg_size total, receives msg_size*/
     send_buf=(int*)malloc_align((size_t)w_size*msg_size);

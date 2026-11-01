@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <limits.h>
 #include "common.h"
 
 const char *benchmark_help =
@@ -30,7 +31,7 @@ int main(int argc, char** argv){
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-k") == 0) {
-            npartners = atoi(arg_value(argc, argv, &i));
+            npartners = parse_int_arg("-k", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else {
             if (my_rank == master_rank) {
                 fprintf(stderr, "Unknown argument: %s\n", argv[i]);
@@ -191,7 +192,7 @@ int main(int argc, char** argv){
                     /*post npartners receives (MPI_ANY_SOURCE: each perm maps exactly one sender to this rank)*/
                     /*post npartners sends to this rank's target in each permutation*/
                     for(p=0;p<npartners;p++){
-                        MPI_Irecv(&recv_dev[(i*npartners+p)*msg_size],msg_size,MPI_BYTE,
+                        MPI_Irecv(&recv_dev[((size_t)i*npartners+p)*msg_size],msg_size,MPI_BYTE,
                                   MPI_ANY_SOURCE,antideadlock_tag,MPI_COMM_WORLD,
                                   &recv_requests[i*npartners+p]);
                         MPI_Isend(send_dev,msg_size,MPI_BYTE,
@@ -243,7 +244,7 @@ int main(int argc, char** argv){
         for (_p = 0; _p < npartners; _p++) {
             int from = inverse[_p*w_size + my_rank];
             int to   = perms[_p*w_size + my_rank];
-            MPI_Irecv(&recv_dev[_p*msg_size], msg_size, MPI_BYTE, from, 0xD0+_p,
+            MPI_Irecv(&recv_dev[(size_t)_p*msg_size], msg_size, MPI_BYTE, from, 0xD0+_p,
                       MPI_COMM_WORLD, &dbg_reqs[_p]);
             MPI_Isend(send_dev, msg_size, MPI_BYTE, to, 0xD0+_p,
                       MPI_COMM_WORLD, &dbg_reqs[npartners + _p]);

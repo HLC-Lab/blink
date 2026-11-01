@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <limits.h>
 #include "common.h"
 
 const char *benchmark_help =
@@ -33,7 +34,7 @@ int main(int argc, char** argv){
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-dimx") == 0) {
-            dimx = atoi(arg_value(argc, argv, &i));
+            dimx = parse_int_arg("-dimx", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else if (strcmp(argv[i], "-periodic") == 0) {
             periodic = true;
         } else {
@@ -149,7 +150,7 @@ int main(int argc, char** argv){
                 for(i=0;i<measure_granularity;i++){
                     /*exchange with all 4 neighbors; MPI_PROC_NULL ops complete immediately*/
                     for(d=0;d<4;d++){
-                        MPI_Irecv(&recv_dev[(4*i+d)*msg_size],msg_size,MPI_BYTE,
+                        MPI_Irecv(&recv_dev[((size_t)4*i+d)*msg_size],msg_size,MPI_BYTE,
                                   neighbors[d],antideadlock_tag,cart_comm,&recv_requests[4*i+d]);
                         MPI_Isend(send_dev,msg_size,MPI_BYTE,
                                   neighbors[d],antideadlock_tag,cart_comm,&send_requests[4*i+d]);

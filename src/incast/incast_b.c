@@ -94,7 +94,7 @@ int main(int argc, char** argv){
                 for(i=0;i<measure_granularity;i++){
                     if (my_rank==master_rank){
                         for(j=0;j<w_size-1;j++){
-                            MPI_Recv(&recv_dev[j*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
+                            MPI_Recv(&recv_dev[(size_t)j*msg_size],msg_size,MPI_BYTE, MPI_ANY_SOURCE
                                     ,MPI_ANY_TAG, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
                         }
                     }else{
@@ -131,9 +131,9 @@ int main(int argc, char** argv){
             int s, _b, slot = 0;
             for (s = 0; s < w_size; s++) {
                 if (s == master_rank) continue;
-                MPI_Recv(&recv_dev[slot*msg_size], msg_size, MPI_BYTE,
+                MPI_Recv(&recv_dev[(size_t)slot*msg_size], msg_size, MPI_BYTE,
                          s, 0xD, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                data_fetch(&recv_buf[slot*msg_size], &recv_dev[slot*msg_size], msg_size);
+                data_fetch(&recv_buf[(size_t)slot*msg_size], &recv_dev[(size_t)slot*msg_size], msg_size);
                 for (_b = 0; _b < msg_size && _ok; _b++)
                     if (recv_buf[(size_t)slot*msg_size + _b] != (unsigned char)s) _ok = 0;
                 slot++;

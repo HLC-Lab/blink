@@ -90,7 +90,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-			        MPI_Ibcast(&buf_dev[i*msg_size],msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD,&requests[i]);
+			        MPI_Ibcast(&buf_dev[(size_t)i*msg_size],msg_size,MPI_BYTE,master_rank,MPI_COMM_WORLD,&requests[i]);
 		        }
 		        MPI_Waitall(measure_granularity,requests,MPI_STATUSES_IGNORE);
                 if (k >= warm_up_iters) record_duration(MPI_Wtime()-measure_start_time);

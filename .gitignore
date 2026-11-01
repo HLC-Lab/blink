@@ -7,3 +7,6 @@ coverage*.html
 *.gcda
 *.gcno
 *.gcov
+
+# agent worktrees
+.claude/worktrees/

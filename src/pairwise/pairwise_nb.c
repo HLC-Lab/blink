@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <sched.h>
+#include <limits.h>
 #include "common.h"
 
 const char *benchmark_help =
@@ -36,7 +37,7 @@ int main(int argc, char** argv){
     argc = parse_common_args(argc, argv);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-offset") == 0) {
-            target_offset = atoi(arg_value(argc, argv, &i));
+            target_offset = parse_int_arg("-offset", arg_value(argc, argv, &i), INT_MIN, INT_MAX);
         } else if (strcmp(argv[i], "-mode") == 0) {
             comm_mode = arg_value(argc, argv, &i);
         } else {
@@ -134,7 +135,7 @@ int main(int argc, char** argv){
                 MPI_Barrier(MPI_COMM_WORLD);
                 measure_start_time=MPI_Wtime();
                 for(i=0;i<measure_granularity;i++){
-                    MPI_Irecv(&recv_dev[i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
+                    MPI_Irecv(&recv_dev[(size_t)i*msg_size],msg_size,MPI_BYTE,MPI_ANY_SOURCE
                         ,MPI_ANY_TAG,MPI_COMM_WORLD,&recv_requests[i]);
                     MPI_Isend(send_dev,msg_size,MPI_BYTE,targets[my_rank]
                         ,my_rank,MPI_COMM_WORLD,&send_requests[i]);
