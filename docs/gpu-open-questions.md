@@ -100,6 +100,8 @@ Open MPI 4.1.6 (CUDA 12.2) + UCX 1.16, 1 node with 4 A100 (64 GB) and 2 nodes, r
 | `allreduce_nb`, `reduce_nb`, `reduce_scatter_nb` | rejected with the explicit message |
 | Inter-node, 1 MiB: `pingpong_b` (2 ranks), `alltoall_b` (8 ranks) | `check=OK` on every rank |
 | Timing, `pingpong_b` 1 MiB, 2 nodes, 1 rank each, 200 iterations, mean of the Average column | Host 48.8 µs, `-gpu` 91.2 µs (1.9x); an earlier `-debug` run gave the same 89 to 90 µs, so it is reproducible |
+| Large-message offsets (2026-11-01, `main` at `ba27cf03`): the opt-in `test_large` (8 cases, 1 node, host buffers) | all 8 cases ran and passed, none skipped |
+| `alltoall_comm_only` and `alltoall_man`, 8 ranks over 2 nodes, `-msgsize` 512 MiB and 1 GiB, `-iter 3 -warmup 1 -debug`, Host and `-gpu` | exit 0 and `check=OK` on all 8 ranks in all 8 runs |
 
 The MPI reports GPU support (`MPI reports GPU support: yes`); UCX was configured with CUDA and gdrcopy.
 
